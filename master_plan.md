@@ -7,7 +7,8 @@
 
 ## Step 01 — Chạy và debug main flow của encoder
 
-**Trạng thái:** NOT STARTED.
+**Trạng thái:** IN PROGRESS — build Debug và cấu hình CodeLLDB đã hoàn tất;
+tiếp theo là Step 1.4, debug flow một frame.
 
 ### 1.1. Chuẩn bị input — TODO
 
@@ -25,7 +26,10 @@ kích thước mong đợi là `320 * 240 * 3 / 2 * 20 = 2,304,000` byte:
 wc -c ../kvazaar/testdata/step1_input_320x240_20f.yuv
 ```
 
-### 1.2. Build với debug symbol — TODO
+### 1.2. Build với debug symbol — DONE
+
+Bằng chứng build: [`step1_1.2.log`](./step1_1.2.log). Binary đã build thành
+công với cấu hình `Debug`, `CHECKED_BUILD=ON`, `noasm` trên macOS ARM64.
 
 Từ thư mục `x265`, dùng build directory riêng để không trộn với build release:
 
@@ -50,7 +54,11 @@ file ./build/debug/x265
 readelf -S ./build/debug/x265 | rg 'debug_info|debug_line'
 ```
 
-### 1.3. Tạo cấu hình debug trong VS Code — TODO
+### 1.3. Tạo cấu hình debug trong VS Code — DONE
+
+Cấu hình: [`.vscode/launch.json`](./.vscode/launch.json). Profile một frame đặt
+breakpoint tại `main` để bắt đầu từ source C++; output của encoder hiển thị trong
+integrated terminal.
 
 Thêm [`.vscode/launch.json`](./.vscode/launch.json) dùng CodeLLDB với hai
 profile. Cả hai profile dùng:

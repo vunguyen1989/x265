@@ -1,0 +1,472 @@
+
+nguyenvu ~/Projects/Fundamental [master] $ cd codec/x265
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ ls
+build                   COPYING                 master_plan.md          SECURITY.md             step1_kvazaar_2_x265.md
+CONTRIBUTING.md         doc                     readme.rst              source                  x265Version.txt
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ mkdir issues
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ git status
+On branch vu_dev
+nothing to commit, working tree clean
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ cmake -S source -B build/debug \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DCHECKED_BUILD=ON \
+  -DENABLE_SHARED=OFF \
+  -DENABLE_ASSEMBLY=OFF \
+  -DCMAKE_C_FLAGS_DEBUG="-O0 -g3 -fno-omit-frame-pointer" \
+  -DCMAKE_CXX_FLAGS_DEBUG="-O0 -g3 -fno-omit-frame-pointer"
+-- cmake version 4.4.3
+-- The C compiler identification is AppleClang 21.0.0.21000101
+-- The CXX compiler identification is AppleClang 21.0.0.21000101
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Detected ARM64 target processor
+-- Could NOT find Numa (missing: NUMA_ROOT_DIR NUMA_INCLUDE_DIR NUMA_LIBRARY)
+-- Looking for include file inttypes.h
+-- Looking for include file inttypes.h - found
+-- Configuring build for run-time CPU feature detection
+-- Performing Test SVE_COMPILATION_C_TEST_COMPILED
+-- Performing Test SVE_COMPILATION_C_TEST_COMPILED - Success
+-- Performing Test SVE_COMPILATION_CXX_TEST_COMPILED
+-- Performing Test SVE_COMPILATION_CXX_TEST_COMPILED - Success
+-- Performing Test SVE_HEADER_C_TEST_COMPILED
+-- Performing Test SVE_HEADER_C_TEST_COMPILED - Success
+-- Performing Test SVE_HEADER_CXX_TEST_COMPILED
+-- Performing Test SVE_HEADER_CXX_TEST_COMPILED - Success
+-- Found Neon
+-- Found Neon DotProd
+-- Found Neon I8MM
+-- Found SVE
+-- Found SVE2
+-- Found SVE2 BitPerm
+-- Performing Test CC_HAS_FLAX_VEC_CONV_NONE
+-- Performing Test CC_HAS_FLAX_VEC_CONV_NONE - Success
+-- Performing Test CC_HAS_NO_STRICT_OVERFLOW
+-- Performing Test CC_HAS_NO_STRICT_OVERFLOW - Success
+-- Performing Test CC_HAS_NO_NARROWING
+-- Performing Test CC_HAS_NO_NARROWING - Success
+-- Performing Test CC_HAS_NO_ARRAY_BOUNDS
+-- Performing Test CC_HAS_NO_ARRAY_BOUNDS - Success
+-- Performing Test CC_HAS_FAST_MATH
+-- Performing Test CC_HAS_FAST_MATH - Success
+-- Performing Test CC_HAS_FNO_EXCEPTIONS_FLAG
+-- Performing Test CC_HAS_FNO_EXCEPTIONS_FLAG - Success
+-- Found Nasm: /opt/homebrew/bin/nasm (found version "3.02")
+-- Looking for getauxval
+-- Looking for getauxval - not found
+-- Looking for elf_aux_info
+-- Looking for elf_aux_info - not found
+-- GIT_EXECUTABLE /opt/homebrew/bin/git
+-- GIT LIVE REPO VERSION RETRIEVED
+-- X265 RELEASE VERSION 4.3+50-4b462a4b1
+-- Looking for strtok_r
+-- Looking for strtok_r - found
+-- Looking for include file getopt.h
+-- Looking for include file getopt.h - found
+-- Configuring done (5.2s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/nguyenvu/Projects/Fundamental/codec/x265/build/debug
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ cmake --build build/debug -j
+[  1%] Building CXX object common/CMakeFiles/common.dir/primitives.cpp.o
+[  3%] Building CXX object common/CMakeFiles/common.dir/lowpassdct.cpp.o
+[  4%] Building CXX object encoder/CMakeFiles/encoder.dir/motion.cpp.o
+[  6%] Building CXX object common/CMakeFiles/common.dir/intrapred.cpp.o
+[  7%] Building CXX object encoder/CMakeFiles/encoder.dir/bitcost.cpp.o
+[ 12%] Building CXX object encoder/CMakeFiles/encoder.dir/analysis.cpp.o
+[ 13%] Building CXX object encoder/CMakeFiles/encoder.dir/search.cpp.o
+[ 13%] Building CXX object common/CMakeFiles/common.dir/constants.cpp.o
+[ 13%] Building CXX object encoder/CMakeFiles/encoder.dir/slicetype.cpp.o
+[ 15%] Building CXX object common/CMakeFiles/common.dir/ipfilter.cpp.o
+[ 16%] Building CXX object encoder/CMakeFiles/encoder.dir/framefilter.cpp.o
+[ 18%] Building CXX object common/CMakeFiles/common.dir/version.cpp.o
+[ 20%] Building CXX object common/CMakeFiles/common.dir/pixel.cpp.o
+[ 21%] Building CXX object encoder/CMakeFiles/encoder.dir/entropy.cpp.o
+[ 23%] Building CXX object common/CMakeFiles/common.dir/dct.cpp.o
+[ 24%] Building CXX object encoder/CMakeFiles/encoder.dir/frameencoder.cpp.o
+[ 26%] Building CXX object encoder/CMakeFiles/encoder.dir/sao.cpp.o
+[ 27%] Building CXX object common/CMakeFiles/common.dir/cpu.cpp.o
+[ 30%] Building CXX object encoder/CMakeFiles/encoder.dir/sei.cpp.o
+[ 30%] Building CXX object common/CMakeFiles/common.dir/loopfilter.cpp.o
+[ 32%] Building CXX object encoder/CMakeFiles/encoder.dir/dpb.cpp.o
+[ 33%] Building CXX object encoder/CMakeFiles/encoder.dir/level.cpp.o
+[ 35%] Building CXX object encoder/CMakeFiles/encoder.dir/nal.cpp.o
+[ 36%] Building CXX object encoder/CMakeFiles/encoder.dir/encoder.cpp.o
+[ 38%] Building CXX object common/CMakeFiles/common.dir/threading.cpp.o
+[ 40%] Building CXX object encoder/CMakeFiles/encoder.dir/api.cpp.o
+[ 43%] Building CXX object encoder/CMakeFiles/encoder.dir/ratecontrol.cpp.o
+[ 44%] Building CXX object common/CMakeFiles/common.dir/threadpool.cpp.o
+[ 46%] Building CXX object encoder/CMakeFiles/encoder.dir/weightPrediction.cpp.o
+[ 46%] Building CXX object common/CMakeFiles/common.dir/wavefront.cpp.o
+[ 47%] Building CXX object common/CMakeFiles/common.dir/md5.cpp.o
+[ 49%] Building CXX object encoder/CMakeFiles/encoder.dir/reference.cpp.o
+[ 50%] Building CXX object common/CMakeFiles/common.dir/common.cpp.o
+[ 52%] Building CXX object common/CMakeFiles/common.dir/temporalfilter.cpp.o
+[ 53%] Building CXX object common/CMakeFiles/common.dir/param.cpp.o
+[ 55%] Building CXX object common/CMakeFiles/common.dir/picyuv.cpp.o
+[ 56%] Building CXX object common/CMakeFiles/common.dir/yuv.cpp.o
+[ 58%] Building CXX object encoder/CMakeFiles/encoder.dir/threadedme.cpp.o
+[ 60%] Building CXX object common/CMakeFiles/common.dir/quant.cpp.o
+[ 61%] Building CXX object common/CMakeFiles/common.dir/predict.cpp.o
+[ 64%] Building CXX object common/CMakeFiles/common.dir/slice.cpp.o
+[ 64%] Building CXX object common/CMakeFiles/common.dir/lowres.cpp.o
+[ 66%] Building CXX object common/CMakeFiles/common.dir/shortyuv.cpp.o
+[ 67%] Building CXX object common/CMakeFiles/common.dir/deblock.cpp.o
+[ 69%] Building CXX object common/CMakeFiles/common.dir/bitstream.cpp.o
+[ 72%] Building CXX object common/CMakeFiles/common.dir/piclist.cpp.o
+[ 73%] Building CXX object common/CMakeFiles/common.dir/scaler.cpp.o
+[ 75%] Building CXX object common/CMakeFiles/common.dir/scalinglist.cpp.o
+[ 75%] Building CXX object common/CMakeFiles/common.dir/framedata.cpp.o
+[ 76%] Building CXX object common/CMakeFiles/common.dir/ringmem.cpp.o
+[ 78%] Building CXX object common/CMakeFiles/common.dir/cudata.cpp.o
+[ 80%] Building CXX object common/CMakeFiles/common.dir/frame.cpp.o
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/framefilter.cpp:26:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/slice.cpp:25:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/frameencoder.cpp:27:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/reference.cpp:31:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/reference.h:30:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/motion.cpp:27:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/entropy.cpp:32:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/sao.h:30:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/slicetype.cpp:27:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/analysis.cpp:27:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/primitives.cpp:26:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/temporalfilter.h:32:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/motion.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/reference.h:30:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/pixel.cpp:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/slicetype.h:30:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/motion.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/reference.h:30:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(ththis, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/sao.cpp:27:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/predict.cpp:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/predict.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/quant.cpp:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/entropy.h:30:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/search.cpp:30:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/search.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/predict.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/cudata.cpp:26:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/weightPrediction.cpp:28:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/framedata.cpp:26:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/search.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/predict.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/piclist.cpp:26:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/threadedme.cpp:25:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/threadedme.h:32:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset   (42 | t h i s, 0, sizeof(ReferencePlanes)); }
+      |In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/api.cpp:27:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/encoder.h:35:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/temporalfilter.h:32:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/motion.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/reference.h:30:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+is, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+                                ^
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/dpb.cpp:26:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32:    42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePl ReferencePlanes() { In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/
+source/encoder/ratecontrol.cpp:32:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Funmemset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+anes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+1 warning generated.
+damental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/encoder.cpp:31:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/cudata.cpp:116:12: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::CUData' [-Wnontrivial-memcall]
+  116 |     memset(this, 0, sizeof(*this));
+      |            ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/cudata.cpp:116:12: note: explicitly cast the pointer to silence this warning
+  116 |     memset(this, 0, sizeof(*this));
+      |            ^
+      |            (void*)
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.cpp:26:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+1 warning generated.
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.cpp:26:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.h:29:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+1 warning generated.
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.cpp:50:12: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'Lowres' [-Wnontrivial-memcall]
+   50 |     memset(&m_lowres, 0, sizeof(m_lowres));
+      |            ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/frame.cpp:50:12: note: explicitly cast the pointer to silence this warning
+   50 |     memset(&m_lowres, 0, sizeof(m_lowres));
+      |            ^
+      |            (void*)
+1 warning generated.
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/temporalfilter.cpp:24:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/temporalfilter.h:32:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/motion.h:29:
+In file included from /Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/reference.h:30:
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'x265::ReferencePlanes' [-Wnontrivial-memcall]
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/lowres.h:42:32: note: explicitly cast the pointer to silence this warning
+   42 |     ReferencePlanes() { memset(this, 0, sizeof(ReferencePlanes)); }
+      |                                ^
+      |                                (void*)
+2 warnings generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/frameencoder.cpp:62:12: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'RateControlEntry'
+      [-Wnontrivial-memcall]
+   62 |     memset(&m_rce, 0, sizeof(RateControlEntry));
+      |            ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/encoder/frameencoder.cpp:62:12: note: explicitly cast the pointer to silence this warning
+   62 |     memset(&m_rce, 0, sizeof(RateControlEntry));
+      |            ^
+      |            (void*)
+1 warning generated.
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/framedata.cpp:92:12: warning: first argument in call to 'memset' is a pointer to non-trivially copyable type 'RCStatRow' [-Wnontrivial-memcall]
+   92 |     memset(m_rowStat, 0, sps.numCuInHeight * sizeof(*m_rowStat));
+      |            ^
+/Users/nguyenvu/Projects/Fundamental/codec/x265/source/common/framedata.cpp:92:12: note: explicitly cast the pointer to silence this warning
+   92 |     memset(m_rowStat, 0, sps.numCuInHeight * sizeof(*m_rowStat));
+      |            ^
+      |            (void*)
+2 warnings generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+2 warnings generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+2 warnings generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+1 warning generated.
+[ 80%] Built target encoder
+1 warning generated.
+[ 80%] Built target common
+[ 81%] Linking CXX static library libx265.a
+[ 81%] Built target x265-static
+[ 84%] Building CXX object CMakeFiles/cli.dir/output/y4m.cpp.o
+[ 86%] Building CXX object CMakeFiles/cli.dir/input/input.cpp.o
+[ 84%] Building CXX object CMakeFiles/cli.dir/output/raw.cpp.o
+[ 87%] Building CXX object CMakeFiles/cli.dir/input/y4m.cpp.o
+[ 89%] Building CXX object CMakeFiles/cli.dir/output/output.cpp.o
+[ 90%] Building CXX object CMakeFiles/cli.dir/input/yuv.cpp.o
+[ 92%] Building CXX object CMakeFiles/cli.dir/output/reconplay.cpp.o
+[ 93%] Building CXX object CMakeFiles/cli.dir/output/yuv.cpp.o
+[ 95%] Building CXX object CMakeFiles/cli.dir/x265.cpp.o
+[ 96%] Building CXX object CMakeFiles/cli.dir/x265cli.cpp.o
+[ 98%] Building CXX object CMakeFiles/cli.dir/abrEncApp.cpp.o
+[100%] Linking CXX executable x265
+[100%] Built target cli
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ ./build/debug/x265 --version
+x265 [info]: HEVC encoder version 4.3+50-4b462a4b1
+x265 [info]: build info [Mac OS X][clang 21.0.0][64 bit][noasm][CHECKED] 8bit
+x265 [info]: using cpu capabilities: none!
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ file ./build/debug/x265
+./build/debug/x265: Mach-O 64-bit executable arm64
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ readelf -S ./build/debug/x265 | rg 'debug_info|debug_line'
+zsh: command not found: readelf
+zsh: command not found: rg
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $
+nguyenvu ~/Projects/Fundamental/codec/x265 [vu_dev] $ tmuxlog fundamental shell_1
+%1 -> shell_1.log
+
