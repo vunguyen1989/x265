@@ -1,0 +1,2057 @@
+    +                    int numEncoded = api->encoder_encode(m_encoder, &p_nal, &nal, picInput, pic_recon);
+    +                    X265_FLOW_LOG("PassEncoder",
+    +                                  "[ENCODER-API call=encoder_encode pass=%d frame=%d] RETURN encoded=%d nal_count=%u nals=%p owner_before=Encoder owner_after=PassEncoder",
+    +                                  m_id, picInput ? picInput->poc : -1, numEncoded, nal, p_nal);
+    @@
+                 while (!b_ctrl_c)
+                 {
+    +                X265_FLOW_LOG("PassEncoder",
+    +                              "[ENCODER-API call=encoder_encode pass=%d mode=flush] CALL input=NULL owner_before=PassEncoder owner_after=Encoder",
+    +                              m_id);
+                     int numEncoded = api->encoder_encode(m_encoder, &p_nal, &nal, NULL, pic_recon);
+    +                X265_FLOW_LOG("PassEncoder",
+    +                              "[ENCODER-API call=encoder_encode pass=%d mode=flush] RETURN encoded=%d nal_count=%u nals=%p owner_before=Encoder owner_after=PassEncoder",
+    +                              m_id, numEncoded, nal, p_nal);
+    @@
+                 m_threadActive = false;
+                 m_parent->m_numActiveEncodes.decr();
+    +            X265_FLOW_LOG("PassEncoder",
+    +                          "[THREAD worker=PassEncoder-%d role=encode-coordinator] STOP input_frames=%u output_frames=%u",
+    +                          m_id, inFrameCount, outFrameCount);
+    @@
+         {
+             THREAD_NAME("Reader", m_id);
+    +        X265_FLOW_LOG("Reader",
+    +                      "[THREAD worker=Reader-%d role=input-copy] START owner=Reader channel=input-pic-buffer",
+    +                      m_id);
+    @@
+                 while (overWritePicBuffer && read < overWritePicBuffer)
+                 {
+    +                X265_FLOW_LOG("Reader",
+    +                              "[CHANNEL channel=input-pic-buffer pass=%d frame=%u] WAIT reason=slot-owned-by-encoder slot=%u generation=%u owner=Reader",
+    +                              m_id, written, writeIdx, overWritePicBuffer);
+                     read = m_parentEnc->m_parent->m_picIdxReadCnt[m_id][writeIdx].waitForChange(read);
+                 }
+    @@
+                         memcpy(dest->planes[0], src->planes[0], src->framesize * sizeof(char));
+    @@
+     #endif
+    +                    X265_FLOW_LOG("Reader",
+    +                                  "[CHANNEL channel=input-pic-buffer pass=%d frame=%u] PUBLISH slot=%u object=x265-picture@%p pixels=%p bytes=%u owner_before=Reader owner_after=PassEncoder",
+    +                                  m_id, written, writeIdx, dest, dest->planes[0], dest->framesize);
+                         if (view == m_parentEnc->m_param->numViews - 1 - !!m_parentEnc->m_param->format)
+                             m_parentEnc->m_parent->m_picWriteCnt[m_id].incr();
+    @@
+             }
+             x265_picture_free(src);
+    +        X265_FLOW_LOG("Reader",
+    +                      "[THREAD worker=Reader-%d role=input-copy] STOP reason=input-complete channel=input-pic-buffer",
+    +                      m_id);
+         }
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: source/abrEncApp.cpp
+    … +93 lines (ctrl + t to view transcript)
+    Success. Updated the following files:
+    M source/abrEncApp.cpp
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Input path hiện đã có đủ ba owner rõ ràng trong log: YUVRead → Reader → PassEncoder → Encoder, kèm slot/buffer pointer và WAIT/WAKE. Tiếp theo mình đang nối phần nặng nhất: Encoder/lookahead → FrameEncoder → CTU analysis/entropy →
+  NAL → output, để một x265.log kể được trọn một frame.
+
+✔ You approved codex to run apply_patch this time
+
+◦ Running apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/encoder.cpp
+    … +46 lines (ctrl + t to view transcript)
+    Success. Updated the following files:
+    M source/encoder/encoder.cpp
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Update File: source/encoder/encoder.cpp
+    @@
+     #include "ratecontrol.h"
+    +#include "flowlog.h"
+    @@
+     int Encoder::encode(const x265_picture* pic_in, x265_picture* pic_out)
+     {
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[ENCODER stage=encode] BEGIN mode=%s input=x265-picture@%p input_poc=%d owner=Encoder delayed=%d",
+    +                  pic_in ? "submit" : "flush", pic_in, pic_in ? pic_in->poc : -1, m_numDelayedPic);
+     #if CHECKED_BUILD || _DEBUG
+    @@
+    -        m_lookahead->addPicture(*inFrame[0], sliceType);
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=lookahead-input frame=%d] PUBLISH object=Frame@%p source=Encoder destination=Lookahead owner_before=Encoder owner_after=Lookahead",
+    +                      inFrame[0]->m_poc, inFrame[0]);
+    +        m_lookahead->addPicture(*inFrame[0], sliceType);
+    @@
+    -        if (!m_bZeroLatency || pass)
+    +        if (!m_bZeroLatency || pass)
+    +        {
+    +            X265_FLOW_LOG("PassEncoder",
+    +                          "[CHANNEL channel=frame-done encoder=%d] POLL pass=%d owner=Encoder",
+    +                          curEncoder->m_jpId, pass);
+                 outFrames = curEncoder->getEncodedPicture(m_nalList);
+    +        }
+             if (outFrames)
+             {
+    +            X265_FLOW_LOG("PassEncoder",
+    +                          "[CHANNEL channel=frame-done encoder=%d frame=%d] RECEIVE object=Frame@%p nals=%u owner_before=FrameEncoder owner_after=Encoder",
+    +                          curEncoder->m_jpId, outFrames[0]->m_poc, outFrames[0], m_nalList.m_numNal);
+                 for (int sLayer = 0; sLayer < m_param->numLayers; sLayer++)
+    @@
+                 /* Allow FrameEncoder::compressFrame() to start in the frame encoder thread */
+    +            X265_FLOW_LOG("PassEncoder",
+    +                          "[CHANNEL channel=frame-start encoder=%d frame=%d] HANDOFF object=Frame@%p source=Encoder destination=FrameEncoder-%d owner_before=Encoder owner_after=FrameEncoder",
+    +                          curEncoder->m_jpId, frameEnc[0]->m_poc, frameEnc[0], curEncoder->m_jpId);
+                 if (!curEncoder->startCompressFrame(frameEnc))
+                     m_aborted = true;
+    @@
+    -    return ret;
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[ENCODER stage=encode] END mode=%s returned=%d delayed=%d nal_count=%u owner=Encoder",
+    +                  pic_in ? "submit" : "flush", ret, m_numDelayedPic, m_nalList.m_numNal);
+    +    return ret;
+     }
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/encoder.cpp
+    … +46 lines (ctrl + t to view transcript)
+    Success. Updated the following files:
+    M source/encoder/encoder.cpp
+
+• Explored
+  └ Search best\.cu\.m_predMode|best\.cu\.m_partSize|best\.rdCost in analysis.cpp
+    Search enum PredMode|MODE_INTRA|MODE_INTER|m_predMode in cudata.h
+
+✔ You approved codex to run apply_patch this time
+
+• Running apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    … +106 lines (ctrl + t to view transcript)
+            // final coding (bitstream generation) for this CU
+            m_entropyCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    @@
+     #include "temporalfilter.h"
+    +#include "flowlog.h"
+    @@
+     bool FrameEncoder::startCompressFrame(Frame* curFrame[MAX_LAYERS])
+     {
+    @@
+         }
+         m_sliceType.set(curFrame[0]->m_lowres.sliceType);
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d frame=%d] PUBLISH object=Frame@%p event=enable owner_before=Encoder owner_after=FrameEncoder-%d",
+    +                  m_jpId, curFrame[0]->m_poc, curFrame[0], m_jpId);
+    @@
+     void FrameEncoder::threadMain()
+     {
+         THREAD_NAME("Frame", m_jpId);
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[THREAD worker=FrameEncoder-%d role=frame-worker] START pool=%p owner=FrameEncoder",
+    +                  m_jpId, m_pool);
+    @@
+    -    m_done.trigger();     /* signal that thread is initialized */
+    -    m_enable.wait();      /* Encoder::encode() triggers this event */
+    +    m_done.trigger();     /* signal that thread is initialized */
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d] WAIT_BEGIN reason=no-frame owner=FrameEncoder-%d",
+    +                  m_jpId, m_jpId);
+    +    m_enable.wait();      /* Encoder::encode() triggers this event */
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d frame=%d] WAIT_END reason=frame-ready object=Frame@%p owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1, m_frame[0], m_jpId);
+    @@
+             for (int layer = 0; layer < m_param->numLayers; layer++)
+                 compressFrame(layer);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] PUBLISH object=Frame@%p nals=%u owner_before=FrameEncoder-%d owner_after=Encoder",
+    +                      m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1, m_frame[0],
+    +                      m_nalList.m_numNal, m_jpId);
+             m_done.trigger(); /* FrameEncoder::getEncodedPicture() blocks for this event */
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-start encoder=%d] WAIT_BEGIN reason=no-frame owner=FrameEncoder-%d",
+    +                      m_jpId, m_jpId);
+             m_enable.wait();
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-start encoder=%d frame=%d] WAIT_END reason=%s object=Frame@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1,
+    +                      m_threadActive ? "frame-ready" : "shutdown", m_frame[0], m_jpId);
+         }
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[THREAD worker=FrameEncoder-%d role=frame-worker] STOP owner=FrameEncoder",
+    +                  m_jpId);
+     }
+    @@
+     void FrameEncoder::compressFrame(int layer)
+     {
+         ProfileScopeEvent(frameThread);
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[FRAME encoder=%d frame=%d layer=%d] BEGIN object=Frame@%p stage=compress owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[layer]->m_poc, layer, m_frame[layer], m_jpId);
+    @@
+         m_endCompressTime[layer] = x265_mdate();
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[FRAME encoder=%d frame=%d layer=%d] DONE object=Frame@%p stage=compress nals=%u access_unit_bits=%llu elapsed_us=%lld owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[layer]->m_poc, layer, m_frame[layer],
+    +                  m_nalList.m_numNal, (unsigned long long)m_accessUnitBits[layer],
+    +                  (long long)(m_endCompressTime[layer] - m_startCompressTime[layer]), m_jpId);
+    @@
+             // Does all the CU analysis, returns best top level mode decision
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=analysis object=CUData@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
+             Mode& best = tld.analysis.compressCTU(*ctu, *m_frame[layer], m_cuGeoms[m_ctuGeomMap[cuAddr]], rowCoder);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=analysis pred_mode=%u depth=%u rd_cost=%llu bits=%u owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col,
+    +                      (unsigned)best.cu.m_predMode[0], (unsigned)best.cu.m_cuDepth[0],
+    +                      (unsigned long long)best.rdCost, best.totalBits, m_jpId);
+    @@
+             // final coding (bitstream generation) for this CU
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=entropy object=CUData@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
+             m_entropyCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=entropy owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, m_jpId);
+    @@
+     Frame** FrameEncoder::getEncodedPicture(NALList& output)
+     {
+    @@
+    -        m_done.wait();
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] WAIT_BEGIN reason=frame-in-progress object=Frame@%p owner=Encoder",
+    +                      m_jpId, m_frame[0]->m_poc, m_frame[0]);
+    +        m_done.wait();
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] WAIT_END reason=frame-complete object=Frame@%p owner=Encoder",
+    +                      m_jpId, m_frame[0]->m_poc, m_frame[0]);
+    @@
+             output.takeContents(m_nalList);
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=nal-output encoder=%d frame=%d] RECEIVE nal_count=%u buffer=%p bytes=%u owner_before=FrameEncoder-%d owner_after=Encoder",
+    +                      m_jpId, m_retFrameBuffer[0]->m_poc, output.m_numNal,
+    +                      output.m_buffer, output.m_occupancy, m_jpId);
+             return m_retFrameBuffer;
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    … +106 lines (ctrl + t to view transcript)
+            // final coding (bitstream generation) for this CU
+            m_entropyCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+
+✔ You approved codex to run apply_patch this time
+
+◦ Running apply_patch
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Trace từ input đến lúc giao Frame cho frame worker đã xong. Patch FrameEncoder vừa rồi không áp dụng vì một đoạn context khác với nhánh x265 đã chỉnh sửa hiện tại; công cụ đã từ chối toàn bộ patch nên không có trạng thái nửa vời.
+  Mình đang áp dụng lại theo đúng source của nhánh này.
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    @@
+     #include "nal.h"
+     #include "temporalfilter.h"
+    +#include "flowlog.h"
+    @@
+     bool FrameEncoder::startCompressFrame(Frame* curFrame[MAX_LAYERS])
+     {
+    @@
+         }
+         m_sliceType.set(curFrame[0]->m_lowres.sliceType);
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d frame=%d] PUBLISH object=Frame@%p event=enable owner_before=Encoder owner_after=FrameEncoder-%d",
+    +                  m_jpId, curFrame[0]->m_poc, curFrame[0], m_jpId);
+    @@
+     void FrameEncoder::threadMain()
+     {
+         THREAD_NAME("Frame", m_jpId);
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[THREAD worker=FrameEncoder-%d role=frame-worker] START pool=%p owner=FrameEncoder",
+    +                  m_jpId, m_pool);
+    @@
+    -    m_done.trigger();     /* signal that thread is initialized */
+    -    m_enable.wait();      /* Encoder::encode() triggers this event */
+    +    m_done.trigger();     /* signal that thread is initialized */
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d] WAIT_BEGIN reason=no-frame owner=FrameEncoder-%d",
+    +                  m_jpId, m_jpId);
+    +    m_enable.wait();      /* Encoder::encode() triggers this event */
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d frame=%d] WAIT_END reason=frame-ready object=Frame@%p owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1, m_frame[0], m_jpId);
+    @@
+             for (int layer = 0; layer < m_param->numLayers; layer++)
+                 compressFrame(layer);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] PUBLISH object=Frame@%p nals=%u owner_before=FrameEncoder-%d owner_after=Encoder",
+    +                      m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1, m_frame[0],
+    +                      m_nalList.m_numNal, m_jpId);
+             m_done.trigger(); /* FrameEncoder::getEncodedPicture() blocks for this event */
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-start encoder=%d] WAIT_BEGIN reason=no-frame owner=FrameEncoder-%d",
+    +                      m_jpId, m_jpId);
+             m_enable.wait();
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-start encoder=%d frame=%d] WAIT_END reason=%s object=Frame@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1,
+    +                      m_threadActive ? "frame-ready" : "shutdown", m_frame[0], m_jpId);
+         }
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[THREAD worker=FrameEncoder-%d role=frame-worker] STOP owner=FrameEncoder",
+    +                  m_jpId);
+     }
+    @@
+     void FrameEncoder::compressFrame(int layer)
+     {
+         ProfileScopeEvent(frameThread);
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[FRAME encoder=%d frame=%d layer=%d] BEGIN object=Frame@%p stage=compress owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[layer]->m_poc, layer, m_frame[layer], m_jpId);
+    @@
+    -    m_endCompressTime[layer] = x265_mdate();
+    +    m_endCompressTime[layer] = x265_mdate();
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[FRAME encoder=%d frame=%d layer=%d] DONE object=Frame@%p stage=compress nals=%u access_unit_bits=%llu elapsed_us=%lld owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[layer]->m_poc, layer, m_frame[layer],
+    +                  m_nalList.m_numNal, (unsigned long long)m_accessUnitBits[layer],
+    +                  (long long)(m_endCompressTime[layer] - m_startCompressTime[layer]), m_jpId);
+    @@
+    -        // Does all the CU analysis, returns best top level mode decision
+    +        // Does all the CU analysis, returns best top level mode decision
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=analysis object=CUData@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
+             Mode& best = tld.analysis.compressCTU(*ctu, *m_frame[layer], m_cuGeoms[m_ctuGeomMap[cuAddr]], rowCoder);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=analysis pred_mode=%u depth=%u rd_cost=%llu bits=%u owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col,
+    +                      (unsigned)best.cu.m_predMode[0], (unsigned)best.cu.m_cuDepth[0],
+    +                      (unsigned long long)best.rdCost, best.totalBits, m_jpId);
+    @@
+    -        rowCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=row-context object=CUData@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
+    +        rowCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=row-context owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, m_jpId);
+    @@
+     void FrameEncoder::encodeSlice(uint32_t sliceAddr, int layer)
+     {
+    @@
+    -        // final coding (bitstream generation) for this CU
+    +        // final coding (bitstream generation) for this CU
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=bitstream object=CUData@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
+             m_entropyCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=bitstream owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, m_jpId);
+    @@
+     Frame** FrameEncoder::getEncodedPicture(NALList& output)
+     {
+    @@
+    -        m_done.wait();
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] WAIT_BEGIN reason=frame-in-progress object=Frame@%p owner=Encoder",
+    +                      m_jpId, m_frame[0]->m_poc, m_frame[0]);
+    +        m_done.wait();
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] WAIT_END reason=frame-complete object=Frame@%p owner=Encoder",
+    +                      m_jpId, m_frame[0]->m_poc, m_frame[0]);
+    @@
+             output.takeContents(m_nalList);
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=nal-output encoder=%d frame=%d] RECEIVE nal_count=%u buffer=%p bytes=%u owner_before=FrameEncoder-%d owner_after=Encoder",
+    +                      m_jpId, m_retFrameBuffer[0]->m_poc, output.m_numNal,
+    +                      output.m_buffer, output.m_occupancy, m_jpId);
+             return m_retFrameBuffer;
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    … +122 lines (ctrl + t to view transcript)
+    void FrameEncoder::encodeSlice(uint32_t sliceAddr, int layer)
+    {
+
+✔ You approved codex to run apply_patch this time
+
+◦ Running apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    … +105 lines (ctrl + t to view transcript)
+    Success. Updated the following files:
+    M source/encoder/frameencoder.cpp
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    @@
+     #include "nal.h"
+     #include "temporalfilter.h"
+    +#include "flowlog.h"
+    @@
+         }
+         m_sliceType.set(curFrame[0]->m_lowres.sliceType);
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d frame=%d] PUBLISH object=Frame@%p event=enable owner_before=Encoder owner_after=FrameEncoder-%d",
+    +                  m_jpId, curFrame[0]->m_poc, curFrame[0], m_jpId);
+    @@
+     void FrameEncoder::threadMain()
+     {
+         THREAD_NAME("Frame", m_jpId);
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[THREAD worker=FrameEncoder-%d role=frame-worker] START pool=%p owner=FrameEncoder",
+    +                  m_jpId, m_pool);
+    @@
+    -    m_done.trigger();     /* signal that thread is initialized */
+    -    m_enable.wait();      /* Encoder::encode() triggers this event */
+    +    m_done.trigger();     /* signal that thread is initialized */
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d] WAIT_BEGIN reason=no-frame owner=FrameEncoder-%d",
+    +                  m_jpId, m_jpId);
+    +    m_enable.wait();      /* Encoder::encode() triggers this event */
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[CHANNEL channel=frame-start encoder=%d frame=%d] WAIT_END reason=frame-ready object=Frame@%p owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1, m_frame[0], m_jpId);
+    @@
+             for (int layer = 0; layer < m_param->numLayers; layer++)
+                 compressFrame(layer);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] PUBLISH object=Frame@%p nals=%u owner_before=FrameEncoder-%d owner_after=Encoder",
+    +                      m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1, m_frame[0],
+    +                      m_nalList.m_numNal, m_jpId);
+             m_done.trigger(); /* FrameEncoder::getEncodedPicture() blocks for this event */
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-start encoder=%d] WAIT_BEGIN reason=no-frame owner=FrameEncoder-%d",
+    +                      m_jpId, m_jpId);
+             m_enable.wait();
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CHANNEL channel=frame-start encoder=%d frame=%d] WAIT_END reason=%s object=Frame@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1,
+    +                      m_threadActive ? "frame-ready" : "shutdown", m_frame[0], m_jpId);
+         }
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[THREAD worker=FrameEncoder-%d role=frame-worker] STOP owner=FrameEncoder",
+    +                  m_jpId);
+     }
+    @@
+     void FrameEncoder::compressFrame(int layer)
+     {
+         ProfileScopeEvent(frameThread);
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[FRAME encoder=%d frame=%d layer=%d] BEGIN object=Frame@%p stage=compress owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[layer]->m_poc, layer, m_frame[layer], m_jpId);
+    @@
+    -    m_endCompressTime[layer] = x265_mdate();
+    +    m_endCompressTime[layer] = x265_mdate();
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[FRAME encoder=%d frame=%d layer=%d] DONE object=Frame@%p stage=compress nals=%u access_unit_bits=%llu elapsed_us=%lld owner=FrameEncoder-%d",
+    +                  m_jpId, m_frame[layer]->m_poc, layer, m_frame[layer],
+    +                  m_nalList.m_numNal, (unsigned long long)m_accessUnitBits[layer],
+    +                  (long long)(m_endCompressTime[layer] - m_startCompressTime[layer]), m_jpId);
+    @@
+    -        // Does all the CU analysis, returns best top level mode decision
+    +        // Does all the CU analysis, returns best top level mode decision
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=analysis object=CUData@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
+             Mode& best = tld.analysis.compressCTU(*ctu, *m_frame[layer], m_cuGeoms[m_ctuGeomMap[cuAddr]], rowCoder);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=analysis pred_mode=%u depth=%u rd_cost=%llu bits=%u owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col,
+    +                      (unsigned)best.cu.m_predMode[0], (unsigned)best.cu.m_cuDepth[0],
+    +                      (unsigned long long)best.rdCost, best.totalBits, m_jpId);
+    @@
+    -        rowCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=row-context object=CUData@%p owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
+    +        rowCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=row-context owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, m_jpId);
+    @@
+     Frame** FrameEncoder::getEncodedPicture(NALList& output)
+     {
+    @@
+    -        m_done.wait();
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] WAIT_BEGIN reason=frame-in-progress object=Frame@%p owner=Encoder",
+    +                      m_jpId, m_frame[0]->m_poc, m_frame[0]);
+    +        m_done.wait();
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=frame-done encoder=%d frame=%d] WAIT_END reason=frame-complete object=Frame@%p owner=Encoder",
+    +                      m_jpId, m_frame[0]->m_poc, m_frame[0]);
+    @@
+             output.takeContents(m_nalList);
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[CHANNEL channel=nal-output encoder=%d frame=%d] RECEIVE nal_count=%u buffer=%p bytes=%u owner_before=FrameEncoder-%d owner_after=Encoder",
+    +                      m_jpId, m_retFrameBuffer[0]->m_poc, output.m_numNal,
+    +                      output.m_buffer, output.m_occupancy, m_jpId);
+             return m_retFrameBuffer;
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    … +105 lines (ctrl + t to view transcript)
+    Success. Updated the following files:
+    M source/encoder/frameencoder.cpp
+
+✔ You approved codex to run sed -n '132,175p' master_plan.md; sed -n '1,220p' step1_1.4.1.log; git diff -... this time
+
+• Ran sed -n '132,175p' master_plan.md; sed -n '1,220p' step1_1.4.1.log; git diff --stat; git status --short
+  └  master_plan.md                  | 101 +++++++++++++++++++++++++++++++++++-----
+     source/abrEncApp.cpp            |  45 ++++++++++++++++++
+    … +13 lines (ctrl + t to view transcript)
+    ?? source/common/flowlog.h
+    ?? step1_1.4.1.log
+
+✔ You approved codex to run apply_patch this time
+
+• Running apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/nal.cpp
+    … +135 lines (ctrl + t to view transcript)
+    M master_plan.md
+    D step1_1.4.1.log
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Update File: source/encoder/nal.cpp
+    @@
+     #include "common.h"
+     #include "bitstream.h"
+     #include "nal.h"
+    +#include "flowlog.h"
+    @@
+     void NALList::takeContents(NALList& other)
+     {
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[OWNERSHIP object=nal-buffer@%p] TRANSFER_BEGIN bytes=%u nal_count=%u owner_before=FrameEncoder owner_after=Encoder",
+    +                  other.m_buffer, other.m_occupancy, other.m_numNal);
+         /* take other NAL buffer, discard our old one */
+    @@
+         other.m_occupancy = 0;
+         other.m_buffer = X265_MALLOC(uint8_t, m_allocSize);
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[OWNERSHIP object=nal-buffer@%p] TRANSFER_DONE bytes=%u nal_count=%u replacement=%p owner=Encoder",
+    +                  m_buffer, m_occupancy, m_numNal, other.m_buffer);
+     }
+    @@
+     void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs, int layerId, uint8_t temporalID)
+     {
+    @@
+         uint32_t payloadSize = bs.getNumberOfWrittenBytes();
+         const uint8_t* bpayload = bs.getFIFO();
+         if (!bpayload)
+             return;
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[BITSTREAM stage=nal-serialize nal_index=%u nal_type=%d layer=%d temporal_id=%u] BEGIN rbsp=%p rbsp_bytes=%u annexb=%d owner=FrameEncoder",
+    +                  m_numNal, (int)nalUnitType, layerId, (unsigned)temporalID,
+    +                  bpayload, payloadSize, (int)m_annexB);
+    @@
+         nal.type = nalUnitType;
+         nal.sizeBytes = bytes;
+         nal.payload = out;
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[BITSTREAM stage=nal-serialize nal_index=%u nal_type=%d] DONE payload=%p bytes=%u access_unit_bytes=%u owner=FrameEncoder",
+    +                  m_numNal - 1, (int)nalUnitType, nal.payload, nal.sizeBytes, m_occupancy);
+     }
+    @@
+     uint32_t NALList::serializeSubstreams(uint32_t* streamSizeBytes, uint32_t streamCount, const Bitstream* streams)
+     {
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[BITSTREAM stage=substream-serialize] BEGIN stream_count=%u owner=FrameEncoder",
+    +                  streamCount);
+    @@
+         m_extraOccupancy = bytes;
+    +    X265_FLOW_LOG("FrameEncoder",
+    +                  "[BITSTREAM stage=substream-serialize] DONE stream_count=%u bytes=%u max_stream_bytes=%u owner=FrameEncoder",
+    +                  streamCount, bytes, maxStreamSize);
+         return maxStreamSize;
+     }
+    *** Update File: source/output/raw.cpp
+    @@
+     #include "raw.h"
+    +#include "flowlog.h"
+    @@
+     int RAWOutput::writeHeaders(const x265_nal* nal, uint32_t nalcount)
+     {
+         uint32_t bytes = 0;
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[OUTPUT kind=headers] WRITE_BEGIN destination=raw-output@%p nal_count=%u owner=PassEncoder",
+    +                  ofs, nalcount);
+
+         for (uint32_t i = 0; i < nalcount; i++)
+         {
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[OUTPUT kind=headers nal_index=%u nal_type=%u] WRITE payload=%p bytes=%u destination=raw-output@%p owner=PassEncoder",
+    +                      i, nal->type, nal->payload, nal->sizeBytes, ofs);
+             fwrite((const void*)nal->payload, 1, nal->sizeBytes, ofs);
+    @@
+    -    return bytes;
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[OUTPUT kind=headers] WRITE_DONE bytes=%u destination=raw-output@%p owner=PassEncoder",
+    +                  bytes, ofs);
+    +    return bytes;
+     }
+
+    -int RAWOutput::writeFrame(const x265_nal* nal, uint32_t nalcount, x265_picture&)
+    +int RAWOutput::writeFrame(const x265_nal* nal, uint32_t nalcount, x265_picture& pic)
+     {
+         uint32_t bytes = 0;
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[OUTPUT kind=frame frame=%d] WRITE_BEGIN destination=raw-output@%p nal_count=%u owner=PassEncoder",
+    +                  pic.poc, ofs, nalcount);
+
+         for (uint32_t i = 0; i < nalcount; i++)
+         {
+    +        X265_FLOW_LOG("PassEncoder",
+    +                      "[OUTPUT kind=frame frame=%d nal_index=%u nal_type=%u] WRITE payload=%p bytes=%u destination=raw-output@%p owner=PassEncoder",
+    +                      pic.poc, i, nal->type, nal->payload, nal->sizeBytes, ofs);
+             fwrite((const void*)nal->payload, 1, nal->sizeBytes, ofs);
+    @@
+    -    return bytes;
+    +    X265_FLOW_LOG("PassEncoder",
+    +                  "[OUTPUT kind=frame frame=%d] WRITE_DONE bytes=%u destination=raw-output@%p owner=PassEncoder",
+    +                  pic.poc, bytes, ofs);
+    +    return bytes;
+     }
+    *** Update File: .vscode/launch.json
+    @@
+                 "program": "${workspaceFolder}/build/debug/x265",
+                 "cwd": "${workspaceFolder}",
+    +            "env": {
+    +                "X265_FLOW_LOG": "${workspaceFolder}/x265.log"
+    +            },
+                 "args": [
+    *** Update File: master_plan.md
+    @@
+    -Log: [`step1_1.4.1.log`](./step1_1.4.1.log).
+    +Log runtime: `x265.log`, do chính encoder sinh khi chạy profile
+    +`x265: 1 frame (simple flow)`. Profile đặt `X265_FLOW_LOG` tới file này;
+    +logger chỉ được biên dịch trong checked/debug build.
+    +
+    +Schema chính:
+    +
+    +- `THREAD`: lifecycle của `YUVRead`, `Reader`, `PassEncoder`,
+    +  `FrameEncoder`.
+    +- `CHANNEL`: `WAIT_BEGIN/WAIT_END/PUBLISH/RECEIVE` và queue/slot tương ứng.
+    +- `owner_before/owner_after`: ownership logic của buffer/picture/frame/NAL.
+    +- `CTU`, `BITSTREAM`, `OUTPUT`: các stage sau input để cùng một log có thể
+    +  nối xuyên suốt toàn bộ frame.
+    +
+    +`x265.log` được mở với mode `w`, nên mỗi lần chạy sẽ thay log cũ. Sau khi
+    +xác nhận một lượt khám phá, copy nó thành `step1_1.4.1.log`,
+    +`step1_1.4.2.log`, v.v. để giữ artifact của từng lượt.
+    @@
+     Hoàn thành khi xác nhận được chuỗi `YUVRead -> Reader -> PassEncoder`, nơi
+     ownership đổi, và frame có `320x240`, 8-bit, I420, `framesize == 115200`.
+    *** Delete File: step1_1.4.1.log
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/nal.cpp
+    … +135 lines (ctrl + t to view transcript)
+    M master_plan.md
+    D step1_1.4.1.log
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Toàn bộ tuyến chính đã được nối log: thread lifecycle, channel wait/wake, handoff/owner, CTU decision, NAL serialization và raw output. File template cũ đã bỏ; x265.log giờ là artifact runtime thật và profile 1-frame tự bật nó. Mình
+  đang rà lỗi compile/API và kiểm tra diff để không đụng phần foveated code có sẵn.
+
+✔ You approved codex to run rg -n "x265_fopen" source/common/common.h source/common/common.cpp; rg -n "cl... this time
+
+• Ran rg -n "x265_fopen" source/common/common.h source/common/common.cpp; rg -n "class Lock|class ScopedLock|struct Lock" source/common/threading.h; rg -n "#define CHECKED_BUILD|CHECKED_BUILD" source/common source/CMakeLists.txt | head
+  │ -30; command -v cmake; command -v clang++; command -v g++; git diff --check; git diff -- source/common/flowlog.h source/common/flowlog.cpp source/common/CMakeLists.txt source/input/yuv.cpp source/abrEncApp.cpp source/encoder/
+  │ encoder.cpp source/encoder/frameencoder.cpp source/encoder/nal.cpp source/output/raw.cpp .vscode/launch.json master_plan.md
+  └ source/CMakeLists.txt:735:option(CHECKED_BUILD "Enable run-time sanity checks (debugging)" OFF)
+    source/CMakeLists.txt:736:if(CHECKED_BUILD)
+    … +734 lines (ctrl + t to view transcript)
+     }
+
+
+• Explored
+  └ Search class FrameEncoder|m_jpId in frameencoder.h
+    Read frameencoder.h
+    Read threadpool.h
+    Read threading.h
+    Read threading.h
+    Read flowlog.cpp
+    Read flowlog.h
+    Read threadpool.h, frameencoder.h, threading.h
+
+✔ You approved codex to run rg --files build 2>/dev/null | head -80; test -f build/debug/compile_commands... this time
+
+• Ran rg --files build 2>/dev/null | head -80; test -f build/debug/compile_commands.json && echo compile-db-present; test -f build/debug/Makefile && echo makefile-present; test -x build/debug/x265 && echo binary-present; rg -n
+  │ "flowlog|frameencoder.cpp" build/debug/compile_commands.json 2>/dev/null | head -10
+  └ build/xcode/make-project.sh
+    build/vc9-x86_64/multilib.bat
+    … +78 lines (ctrl + t to view transcript)
+    makefile-present
+    binary-present
+
+✔ You approved codex to run sed -n '1,120p' build/debug/common/CMakeFiles/common.dir/flags.make; sed -n '... this time
+
+• Ran sed -n '1,120p' build/debug/common/CMakeFiles/common.dir/flags.make; sed -n '1,120p' build/debug/encoder/CMakeFiles/encoder.dir/flags.make 2>/dev/null; rg -n "abrEncApp.cpp.o:|raw.cpp.o:|yuv.cpp.o:" build/debug/CMakeFiles build/
+  │ debug/source build/debug 2>/dev/null | head -30
+  └ build/debug/Makefile:246:abrEncApp.cpp.o:
+    build/debug/Makefile:318:input/yuv.cpp.o:
+    … +26 lines (ctrl + t to view transcript)
+    build/debug/CMakeFiles/cli.dir/build.make:103:CMakeFiles/cli.dir/input/yuv.cpp.o: CMakeFiles/cli.dir/flags.make
+    build/debug/CMakeFiles/cli.dir/build.make:104:CMakeFiles/cli.dir/input/yuv.cpp.o: /Users/nguyenvu/Projects/Fundamental/codec/x265/source/input/yuv.cpp
+
+• Explored
+  └ Read x265_config.h, common.h, flags.make
+
+✔ You approved codex to run g++ -std=gnu++98 -fsyntax-only -Wall -Wextra -DCHECKED_BUILD=1 -DHAVE_INT_TYP... this time
+
+• Ran g++ -std=gnu++98 -fsyntax-only -Wall -Wextra -DCHECKED_BUILD=1 -DHAVE_INT_TYPES_H=1 -DHIGH_BIT_DEPTH=0 -DX265_ARCH_X86=1 -DX86_64=1 -DX265_DEPTH=8 -DX265_NS=x265 -D__STDC_LIMIT_MACROS=1 -Isource -Isource/common -Isource/encoder
+  │ -Ibuild/debug source/common/flowlog.cpp
+  └ (no output)
+
+✔ You approved codex to run g++ -std=gnu++98 -fsyntax-only -Wall -Wextra -Wno-unused-parameter -DCHECKED_... this time
+
+• Ran g++ -std=gnu++98 -fsyntax-only -Wall -Wextra -Wno-unused-parameter -DCHECKED_BUILD=1 -DHAVE_INT_TYPES_H=1 -DHIGH_BIT_DEPTH=0 -DX265_ARCH_X86=1 -DX86_64=1 -DX265_DEPTH=8 -DX265_NS=x265 -D__STDC_LIMIT_MACROS=1 -Isource -Isource/
+  │ common -Isource/encoder -Isource/input -Isource/output -Ibuild/debug source/input/yuv.cpp source/abrEncApp.cpp source/encoder/encoder.cpp source/encoder/frameencoder.cpp source/encoder/nal.cpp source/output/raw.cpp
+  └ In file included from source/common/frame.h:29,
+                     from source/encoder/encoder.cpp:31:
+    … +157 lines (ctrl + t to view transcript)
+       41 | struct FrameStats
+          |        ^~~~~~~~~~
+
+✔ You approved codex to run sed -n '205,255p' master_plan.md; sed -n '1,130p' .vscode/launch.json; git st... this time
+
+• Ran sed -n '205,255p' master_plan.md; sed -n '1,130p' .vscode/launch.json; git status --short; git diff --check; rg -n "X265_FLOW_LOG" source .vscode master_plan.md
+  └  M master_plan.md
+     M source/abrEncApp.cpp
+    … +68 lines (ctrl + t to view transcript)
+    source/common/flowlog.h:19:#define X265_FLOW_LOG(threadName, ...) do { } while (0)
+    source/common/flowlog.cpp:45:        const char* path = getenv("X265_FLOW_LOG");
+
+✔ You approved codex to run nl -ba source/common/threadpool.cpp | sed -n '60,180p'; nl -ba source/common/... this time
+
+• Explored
+  └ Read threadpool.cpp
+    Search enqueue|findJob|m_jpTable|tryAcquireSleepingThread|wake in threadpool.cpp
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Rà soát cho thấy profile 1-frame cố ý dùng --pools none, nên log đúng sẽ không có các Worker-N của pool; chỉ có FrameEncoder-0 làm CTU. Để log vẫn dùng được khi bật pools/WPP về sau, mình sẽ thêm lifecycle/sleep-wake/provider
+  ownership cho worker pool. Đây cũng giúp phân biệt “không có worker” với “logger bỏ sót worker”.
+
+✔ You approved codex to run apply_patch this time
+
+• Running apply_patch
+  └ *** Begin Patch
+    *** Update File: source/common/threadpool.cpp
+    … +117 lines (ctrl + t to view transcript)
+    M source/common/threadpool.cpp
+    M master_plan.md
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Update File: source/common/threadpool.cpp
+    @@
+     #include "threadpool.h"
+    +#include "flowlog.h"
+    @@
+     void WorkerThread::threadMain()
+     {
+         THREAD_NAME("Worker", m_id);
+    +    X265_FLOW_LOG("Worker",
+    +                  "[THREAD worker=Worker-%d role=pool-worker] START pool=%p owner=ThreadPool",
+    +                  m_id, &m_pool);
+    @@
+         SLEEPBITMAP_OR(&m_curJobProvider->m_ownerBitmap, idBit);
+         SLEEPBITMAP_OR(&m_pool.m_sleepBitmap, idBit);
+    +    X265_FLOW_LOG("Worker",
+    +                  "[WORKER worker=Worker-%d] WAIT_BEGIN reason=idle provider=%d owner=JobProvider-%d",
+    +                  m_id, m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
+         m_wakeEvent.wait();
+    +    X265_FLOW_LOG("Worker",
+    +                  "[WORKER worker=Worker-%d] WAIT_END reason=work-available provider=%d owner=JobProvider-%d",
+    +                  m_id, m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
+    @@
+             if (m_bondMaster)
+             {
+    +            X265_FLOW_LOG("Worker",
+    +                          "[JOB worker=Worker-%d kind=bonded-task object=%p] BEGIN owner=Worker-%d",
+    +                          m_id, m_bondMaster, m_id);
+                 m_bondMaster->processTasks(m_id);
+    +            X265_FLOW_LOG("Worker",
+    +                          "[JOB worker=Worker-%d kind=bonded-task object=%p] DONE owner=Worker-%d",
+    +                          m_id, m_bondMaster, m_id);
+                 m_bondMaster->m_exitedPeerCount.incr();
+                 m_bondMaster = NULL;
+    @@
+                 /* do pending work for current job provider */
+    +            X265_FLOW_LOG("Worker",
+    +                          "[JOB worker=Worker-%d kind=provider-work provider=%d] BEGIN owner=JobProvider-%d",
+    +                          m_id, m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
+                 m_curJobProvider->findJob(m_id);
+    +            X265_FLOW_LOG("Worker",
+    +                          "[JOB worker=Worker-%d kind=provider-work provider=%d] END help_wanted=%d owner=JobProvider-%d",
+    +                          m_id, m_curJobProvider->m_jpId,
+    +                          (int)(bool)m_curJobProvider->m_helpWanted, m_curJobProvider->m_jpId);
+    @@
+                 if (nextProvider != -1 && m_curJobProvider != m_pool.m_jpTable[nextProvider])
+                 {
+    +                int previousProvider = m_curJobProvider->m_jpId;
+                     SLEEPBITMAP_AND(&m_curJobProvider->m_ownerBitmap, ~idBit);
+                     m_curJobProvider = m_pool.m_jpTable[nextProvider];
+                     SLEEPBITMAP_OR(&m_curJobProvider->m_ownerBitmap, idBit);
+    +                X265_FLOW_LOG("Worker",
+    +                              "[OWNERSHIP worker=Worker-%d] TRANSFER owner_before=JobProvider-%d owner_after=JobProvider-%d reason=higher-priority",
+    +                              m_id, previousProvider, m_curJobProvider->m_jpId);
+                 }
+    @@
+             SLEEPBITMAP_OR(&m_pool.m_sleepBitmap, idBit);
+    +        X265_FLOW_LOG("Worker",
+    +                      "[WORKER worker=Worker-%d] WAIT_BEGIN reason=idle provider=%d owner=JobProvider-%d",
+    +                      m_id, m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
+             m_wakeEvent.wait();
+    +        X265_FLOW_LOG("Worker",
+    +                      "[WORKER worker=Worker-%d] WAIT_END reason=%s provider=%d owner=JobProvider-%d",
+    +                      m_id, m_pool.m_isActive ? "work-available" : "shutdown",
+    +                      m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
+         }
+
+         SLEEPBITMAP_OR(&m_pool.m_sleepBitmap, idBit);
+    +    X265_FLOW_LOG("Worker",
+    +                  "[THREAD worker=Worker-%d role=pool-worker] STOP pool=%p owner=ThreadPool",
+    +                  m_id, &m_pool);
+     }
+    @@
+     bool JobProvider::tryWakeOne()
+     {
+    @@
+         if (id < 0)
+         {
+             m_helpWanted = true;
+    +        X265_FLOW_LOG("Scheduler",
+    +                      "[WORKER provider=%d] WAKE_MISSED reason=no-sleeping-worker help_wanted=1 owner=JobProvider-%d",
+    +                      m_jpId, m_jpId);
+             return false;
+    @@
+         if (worker.m_curJobProvider != this) /* poaching */
+         {
+    +        int previousProvider = worker.m_curJobProvider->m_jpId;
+             sleepbitmap_t bit = (sleepbitmap_t)1 << id;
+    @@
+             SLEEPBITMAP_OR(&worker.m_curJobProvider->m_ownerBitmap, bit);
+    +        X265_FLOW_LOG("Scheduler",
+    +                      "[OWNERSHIP worker=Worker-%d] TRANSFER owner_before=JobProvider-%d owner_after=JobProvider-%d reason=poach",
+    +                      id, previousProvider, m_jpId);
+         }
+    +    X265_FLOW_LOG("Scheduler",
+    +                  "[WORKER worker=Worker-%d provider=%d] WAKE reason=provider-work owner=JobProvider-%d",
+    +                  id, m_jpId, m_jpId);
+         worker.awaken();
+    @@
+     int ThreadPool::tryBondPeers(int maxPeers, sleepbitmap_t peerBitmap, BondedTaskGroup& master)
+     {
+    @@
+             m_workers[id].m_bondMaster = &master;
+    +        X265_FLOW_LOG("Scheduler",
+    +                      "[JOB worker=Worker-%d kind=bonded-task object=%p] ASSIGN owner_before=Scheduler owner_after=Worker-%d",
+    +                      id, &master, id);
+             m_workers[id].awaken();
+    *** Update File: master_plan.md
+    @@
+    -Không thêm trace logging vào source ở Step 01. Chỉ khi breakpoint/thread view
+    -không đủ mới tạo một sub-step instrumentation riêng, có format log và tiêu chí
+    -gỡ bỏ rõ ràng.
+    +Instrumentation tạm thời đã được bật theo yêu cầu vì breakpoint/thread view
+    +không thể tạo một timeline hợp nhất như log Kvazaar. Nó chỉ hoạt động trong
+    +checked/debug build khi có `X265_FLOW_LOG`; bỏ biến môi trường thì logger
+    +không mở file. Gỡ `flowlog.*` và các call `X265_FLOW_LOG` sau khi bốn artifact
+    +`step1_1.4.x.log` đã được chốt.
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: source/common/threadpool.cpp
+    … +117 lines (ctrl + t to view transcript)
+    M source/common/threadpool.cpp
+    M master_plan.md
+
+✔ You approved codex to run g++ -std=gnu++98 -fsyntax-only -Wall -Wextra -Wno-unused-parameter -DCHECKED_... this time
+
+• Ran g++ -std=gnu++98 -fsyntax-only -Wall -Wextra -Wno-unused-parameter -DCHECKED_BUILD=1 -DHAVE_INT_TYPES_H=1 -DHIGH_BIT_DEPTH=0 -DX265_ARCH_X86=1 -DX86_64=1 -DX265_DEPTH=8 -DX265_NS=x265 -D__STDC_LIMIT_MACROS=1 -Isource -Isource/
+  │ common -Isource/encoder -Isource/input -Isource/output -Ibuild/debug source/common/flowlog.cpp source/common/threadpool.cpp source/input/yuv.cpp source/abrEncApp.cpp source/encoder/encoder.cpp source/encoder/frameencoder.cpp
+  │ source/encoder/nal.cpp source/output/raw.cpp
+  └ In file included from source/common/frame.h:29,
+                     from source/encoder/encoder.cpp:31:
+    … +157 lines (ctrl + t to view transcript)
+       41 | struct FrameStats
+          |        ^~~~~~~~~~
+
+• Explored
+  └ Search THREAD_LOCAL|thread_local|__thread|__declspec\(thread\) in common
+    Search THREAD_NAME in threading.h
+
+✔ You approved codex to run sed -n '1,180p' .gitignore; git check-ignore -v x265.log || true; git diff --... this time
+
+• Ran sed -n '1,180p' .gitignore; git check-ignore -v x265.log || true; git diff --check; git diff --stat; git status --short
+  └  master_plan.md                  | 124 +++++++++++++++++++++++++++++++++++-----
+     source/abrEncApp.cpp            |  45 +++++++++++++++
+    … +18 lines (ctrl + t to view transcript)
+    ?? source/common/flowlog.cpp
+    ?? source/common/flowlog.h
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Syntax-only đã pass cho toàn bộ file instrument (chỉ còn warning cũ của upstream về memset, không có lỗi mới). Mình phát hiện thêm một nhánh entropy thứ hai dùng để tạo bitstream thật khi SAO/WPP cần encode lại CTU; đang bổ sung
+  event riêng để log không đánh đồng “row context” với “final bitstream”.
+
+✔ You approved codex to run apply_patch this time
+
+◦ Running apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    … +28 lines (ctrl + t to view transcript)
+    M master_plan.md
+    M .gitignore
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    @@
+             // final coding (bitstream generation) for this CU
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=final-bitstream object=CUData@%p step_owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
+             m_entropyCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+    +        X265_FLOW_LOG("FrameEncoder",
+    +                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=final-bitstream step_owner=FrameEncoder-%d",
+    +                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, m_jpId);
+    *** Update File: master_plan.md
+    @@
+    -- `owner_before/owner_after`: ownership logic của buffer/picture/frame/NAL.
+    +- `owner_before/owner_after`: owner của bước xử lý (execution responsibility),
+    +  không mặc định là owner cấp phát/lifetime của vùng nhớ. Riêng
+    +  `NALList::takeContents` là chuyển ownership buffer thật.
+    @@
+     - `CTU`, `BITSTREAM`, `OUTPUT`: các stage sau input để cùng một log có thể
+       nối xuyên suốt toàn bộ frame.
+    *** Update File: .gitignore
+    @@
+     # Build directory
+     build/
+    +
+    +# Temporary Step 1 structural trace
+    +/x265.log
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: source/encoder/frameencoder.cpp
+    … +28 lines (ctrl + t to view transcript)
+    M master_plan.md
+    M .gitignore
+
+✔ You approved codex to run git diff --check; git status --short; rg -n "void x265_flow_log|X265_FLOW_LOG... this time
+
+• Ran git diff --check; git status --short; rg -n "void x265_flow_log|X265_FLOW_LOG\(\"YUVRead|THREAD worker=Reader|ENCODER-API call|THREAD worker=Worker|FRAME encoder=|stage=analysis|stage=final-bitstream|stage=nal-serialize|OUTPUT
+  │ kind=frame|X265_FLOW_LOG\"|Log runtime" source .vscode/launch.json master_plan.md; g++ -std=gnu++98 -fsyntax-only -Wall -Wextra -Wno-unused-parameter -DCHECKED_BUILD=1 -DHAVE_INT_TYPES_H=1 -DHIGH_BIT_DEPTH=0 -DX265_ARCH_X86=1
+  │ -DX86_64=1 -DX265_DEPTH=8 -DX265_NS=x265 -D__STDC_LIMIT_MACROS=1 -Isource -Isource/common -Isource/encoder -Isource/input -Isource/output -Ibuild/debug source/encoder/frameencoder.cpp
+  └  M .gitignore
+     M master_plan.md
+    … +135 lines (ctrl + t to view transcript)
+       41 | struct FrameStats
+          |        ^~~~~~~~~~
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Đã thêm cơ chế sinh x265.log thật từ encoder, theo format tương tự log Kvazaar.
+
+  Log hiện bao phủ:
+
+  - YUVRead → Reader → PassEncoder → Encoder
+  - lookahead → FrameEncoder
+  - WAIT/WAKE, PUBLISH/RECEIVE trên từng channel
+  - Frame và từng CTU: analysis, row-context, final-bitstream
+  - Worker pool: start/stop, sleep/wake, job provider, chuyển owner
+  - NAL serialize, chuyển ownership buffer, ghi output
+  - owner_before/owner_after biểu diễn owner của bước xử lý; riêng NALList::takeContents là chuyển quyền sở hữu buffer thật.
+
+  Các phần chính nằm tại:
+
+  - Logger: source/common/flowlog.cpp:37
+  - Input queues: source/input/yuv.cpp:162
+  - Reader/API: source/abrEncApp.cpp:633
+  - Worker pool: source/common/threadpool.cpp:124
+  - Frame/CTU: source/encoder/frameencoder.cpp:302
+  - NAL: source/encoder/nal.cpp:42
+  - Output: source/output/raw.cpp:57
+  - Mô tả log: master_plan.md:142
+
+  Profile x265: 1 frame (simple flow) đã tự đặt:
+
+  X265_FLOW_LOG=${workspaceFolder}/x265.log
+
+  Vì profile dùng --pools none, lượt chạy này sẽ không có Worker-N; FrameEncoder-0 trực tiếp xử lý CTU. Khi bật pool/WPP, log worker mới xuất hiện. Các “IPC” ở đây là channel/event giữa thread trong cùng process, không phải IPC giữa
+  nhiều process.
+
+  Sau khi rebuild, chạy profile 1-frame. File /app/x265.log sẽ được tạo mới và overwrite mỗi lần chạy. Khi chốt lượt 1.4.1:
+
+  cp x265.log step1_1.4.1.log
+
+  Template step1_1.4.1.log cũ đã được xóa. Syntax-only cho toàn bộ phần instrumentation đã pass; chỉ có các warning memset có sẵn từ upstream.
+
+─ Worked for 1h 10m 16s ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› tiếp cận như này thì mục 1.4 có cần chia thành 4 phần không ta?
+
+
+• Với cách instrumentation hiện tại thì không cần chạy 4 lượt và tạo 4 log riêng nữa.
+
+  Nên giữ 4 phần như 4 góc phân tích, nhưng dùng chung một lần encode và một artifact:
+
+  - step1_1.4.log: raw timeline end-to-end của một frame.
+  - 1.4.1: input queues và thread topology.
+  - 1.4.2: API submit/flush và zero-latency.
+  - 1.4.3: FrameEncoder, scheduling và CTU.
+  - 1.4.4: entropy, NAL ownership và output.
+
+  Flow mới hợp lý hơn:
+
+  Build → encode 1 frame → x265.log
+                           ├── phân tích 1.4.1
+                           ├── phân tích 1.4.2
+                           ├── phân tích 1.4.3
+                           └── phân tích 1.4.4
+
+  Sau khi chạy:
+
+  cp x265.log step1_1.4.log
+
+  Không nên copy thành step1_1.4.1.log đến .4.log, vì sẽ là bốn bản gần như giống nhau và làm mất lợi thế timestamp xuyên suốt giữa các thread.
+
+  Tóm lại: giữ 4 mục để dễ hiểu và có tiêu chí hoàn thành riêng, nhưng chuyển từ “4 lượt khám phá” thành “1 capture, 4 lượt đọc/phân tích”. master_plan.md hiện tại nên được sửa theo chiến lược này.
+
+
+› mình đã tạo file step1_1.4.log từ x265.log; giờ hãy tạo file step1_1.4_flow.md để giải thích detail log, flow, ..., owner,  làm các digram (sequence diagram) để mình hiểu về logic.
+
+
+• Mình sẽ dùng skill video-engineer vì đây là phân tích pipeline encoder/threading từ log codec. Mình sẽ đọc step1_1.4.log, đối chiếu các event với source, rồi tạo step1_1.4_flow.md gồm timeline, ownership, channel/event semantics và
+  sequence diagram bám theo dữ liệu thực tế trong log.
+
+• Explored
+  └ Read SKILL.md (video-engineer skill)
+
+✔ You approved codex to run wc -l step1_1.4.log; head -120 step1_1.4.log; tail -120 step1_1.4.log; rg -o ... this time
+
+• Ran wc -l step1_1.4.log; head -120 step1_1.4.log; tail -120 step1_1.4.log; rg -o "\[(THREAD|CHANNEL|WORKER|JOB|OWNERSHIP|ENCODER-API|ENCODER|FRAME|CTU|BITSTREAM|OUTPUT)[^]]*\]" step1_1.4.log | sed -E 's/^\[([^ ]+).*/\1/' | sort |
+  │ uniq -c; rg -o "thread=[^ ]+ id=[^]]+" step1_1.4.log | sort | uniq -c
+  └ 391 step1_1.4.log
+    2026-09-23 17:18:54.200143 [thread=YUVRead-0 id=6172471296] yuv.cpp:167 [THREAD worker=YUVRead-0 role=input-reader] START owner=YUVInput channel=yuv-ring
+    … +250 lines (ctrl + t to view transcript)
+          4 thread=Reader id=6174191616
+         10 thread=YUVRead-0 id=6172471296
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Log runtime có vài finding quan trọng để đưa vào tài liệu: encode chỉ một frame nhưng YUVRead đã prefetch 5 raw frame và bị chặn khi ring đầy; Reader chỉ publish frame 0. Đồng thời --pools none được xác nhận bằng pool=0x0: toàn bộ 80
+  CTU chạy tuần tự trên FrameEncoder-0, không có Worker-N. Mình đang tách timeline và kiểm tra các lần flush/NAL để diagram phản ánh đúng những chi tiết này.
+
+✔ You approved codex to run rg -v "\[CTU " step1_1.4.log | nl -ba; rg "\[CTU .*DONE stage=analysis" step1... this time
+
+✔ You approved codex to run rg -n "ultrafast|maxCUSize = 32|max-cu-size" source/common/param.cpp source/x... this time
+
+✔ You approved codex to run rg "DONE stage=analysis" step1_1.4.log | sed -E 's/.*ctu=([0-9]+).*rd_cost=([... this time
+
+✔ You approved codex to run rg "stage=analysis" step1_1.4.log | sed -E 's/^[^.]*\.([0-9]{6}).*ctu=([0-9]+... this time
+
+✔ You approved codex to run rg "stage=row-context" step1_1.4.log | sed -E 's/^[^.]*\.([0-9]{6}).*ctu=([0-... this time
+
+✔ You approved codex to run nl -ba source/encoder/frameencoder.cpp | sed -n '485,535p'; rg -n "encoder_he... this time
+
+✔ You approved codex to run sed -n '650,700p' source/common/param.cpp; nl -ba source/encoder/frameencoder... this time
+
+✔ You approved codex to run nl -ba step1_1.4.log | rg "THREAD worker=|frame=0\] PUBLISH slot=0|frame=0\] ... this time
+
+• Explored
+  └ Search \[CTU  in step1_1.4.log
+    Search \[CTU .*DONE stage=analysis in step1_1.4.log
+    Search DONE stage=analysis in step1_1.4.log
+    Search ultrafast|maxCUSize = 32|max-cu-size in param.cpp
+    Read cudata.h
+    Search NAL_UNIT_CODED_SLICE_IDR_W_RADL|NAL_UNIT_VPS|NAL_UNIT_SPS|NAL_UNIT_PPS|NAL_UNIT_PREFIX_SEI in slice.h
+    Read step1_1.4.log
+    Search DONE stage=analysis in step1_1.4.log
+    Search stage=analysis in step1_1.4.log
+    Search stage=row-context in step1_1.4.log
+    Read x265.h
+    Read param.cpp
+    Search bRepeatHeaders|repeat-headers in param.cpp
+    Search bEnableWavefront|bEnableLoopFilter|bSao in param.cpp
+    Read frameencoder.cpp
+    Search encoder_headers\(|writeHeaders in abrEncApp.cpp
+    Read abrEncApp.cpp
+    Search zerolatency in param.cpp
+    Read param.cpp
+    Read param.cpp, frameencoder.cpp
+    Read step1_1.4.log
+    Search THREAD worker=|frame=0\] PUBLISH slot=0|frame=0\] RECEIVE slot=0|input-pic-buffer pass=0 frame=0\] PUBLISH|ENCODER-API call=encoder_encode pass=0 frame=0|lookahead-input|frame-start encoder=0 frame=0|frame-done encoder=0
+           frame=0|FRAME encoder=0 frame=0|nal-buffer|nal-output|OUTPUT kind=frame frame=0|mode=flush|reason=shutdown
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Mình đã đủ dữ liệu để viết tài liệu: sẽ phân biệt rõ “thread thật”, “component logic”, “channel đồng bộ”, và “ownership xử lý” với ownership vùng nhớ. Phần NAL cũng sẽ giải thích vì sao access_unit_bits=59536 nhưng file ghi 9753 byte
+  —hai số đang đo hai phạm vi khác nhau, không phải lỗi.
+
+✔ You approved codex to run apply_patch this time
+
+◦ Running apply_patch
+  └ *** Begin Patch
+    *** Add File: step1_1.4_flow.md
+    … +748 lines (ctrl + t to view transcript)
+    Success. Updated the following files:
+    A step1_1.4_flow.md
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Add File: step1_1.4_flow.md
+    +# Step 1.4 — Flow encode một frame trong x265
+    +
+    +Tài liệu này giải thích execution trace trong
+    +[`step1_1.4.log`](./step1_1.4.log). Đây là một lần encode frame 0 với profile
+    +`x265: 1 frame (simple flow)`: input 320x240, 8-bit I420, preset
+    +`ultrafast`, tune `zerolatency`, một frame thread, `--pools none`,
+    +`--no-wpp` và `--no-asm`.
+    +
+    +Mục tiêu không chỉ là liệt kê function call. Ta cần thấy:
+    +
+    +- thread nào thực thi mỗi bước;
+    +- dữ liệu được copy hay chỉ truyền con trỏ;
+    +- thread giao việc và đánh thức nhau qua channel/event nào;
+    +- “owner” ở mỗi giai đoạn có nghĩa gì;
+    +- một `Frame` trở thành CTU decisions, NAL units và cuối cùng là byte trong
+    +  file như thế nào.
+    +
+    +## 1. Kết luận nhanh
+    +
+    +Flow thực tế của frame 0 là:
+    +
+    +```text
+    +file YUV
+    +  -> YUVRead-0
+    +  -> YUVInput ring slot
+    +  -> Reader-0 (copy 115200 byte)
+    +  -> AbrEncoder input-picture slot
+    +  -> PassEncoder-0 / x265_picture
+    +  -> Encoder::encode
+    +  -> Lookahead (logic, không thấy thread riêng trong trace này)
+    +  -> FrameEncoder-0
+    +  -> 80 CTU theo thứ tự 0..79
+    +  -> 5 Annex-B NAL
+    +  -> NAL buffer transfer về Encoder
+    +  -> PassEncoder-0
+    +  -> RAWOutput
+    +  -> step1_output_1f.h265 (9753 byte)
+    +```
+    +
+    +Các điểm nổi bật:
+    +
+    +1. Có bốn OS thread xuất hiện trong log: `YUVRead-0`, `Reader-0`,
+    +   `PassEncoder-0` và `FrameEncoder-0`.
+    +2. Không có `Worker-N`, vì `FrameEncoder-0` khởi động với `pool=0x0`.
+    +   Với `--pools none --no-wpp`, chính frame thread xử lý tuần tự toàn bộ CTU.
+    +3. Đây không phải IPC giữa nhiều process. Các `CHANNEL` là giao tiếp
+    +   inter-thread trong cùng process bằng ring buffer, atomic counter và event.
+    +4. Input chỉ encode một frame nhưng `YUVRead-0` đã prefetch năm raw frame.
+    +   `Reader-0` chỉ lấy frame 0; các frame còn lại nằm trong ring cho đến lúc
+    +   shutdown.
+    +5. Input call `encoder_encode(picInput)` trả frame ngay trong cùng call:
+    +   `encoded=1`, `delayed=0`. Đây là hành vi zero-latency quan sát được.
+    +6. Frame 320x240 dùng CTU 32x32, tạo grid `ceil(320/32) x ceil(240/32) =
+    +   10 x 8 = 80 CTU`.
+    +7. Tất cả CTU có `pred_mode=2`, tức `MODE_INTRA`, phù hợp với frame IDR
+    +   duy nhất của profile `keyint=1`.
+    +8. Năm NAL được ghi: VPS, SPS, PPS, prefix SEI và IDR_N_LP. Tổng số byte
+    +   thật ghi ra file là 9753.
+    +
+    +## 2. Cách đọc một dòng log
+    +
+    +Ví dụ:
+    +
+    +```text
+    +2026-09-23 17:18:54.203527
+    +[thread=PassEncoder id=6173618176]
+    +frameencoder.cpp:2645
+    +[CHANNEL channel=frame-done encoder=0 frame=0]
+    +WAIT_BEGIN reason=frame-in-progress
+    +object=Frame@0xc44614000 owner=Encoder
+    +```
+    +
+    +Ý nghĩa:
+    +
+    +| Trường | Ý nghĩa |
+    +|---|---|
+    +| timestamp | Thời điểm event được ghi, độ phân giải microsecond |
+    +| `thread` | Tên logic gắn tại điểm trace |
+    +| `id` | ID OS thread trong lần chạy này |
+    +| `file:line` | Vị trí instrumentation trong source đã build |
+    +| nhóm event | `THREAD`, `CHANNEL`, `CTU`, `BITSTREAM`, v.v. |
+    +| object/pointer | Identity của object trong đúng lần chạy này |
+    +| owner | Component/thread đang chịu trách nhiệm cho bước xử lý |
+    +
+    +Pointer và thread ID chỉ có ý nghĩa trong một process/lần chạy. Không so sánh
+    +địa chỉ giữa hai lần encode.
+    +
+    +### “Owner” không phải lúc nào cũng là memory owner
+    +
+    +Trong phần lớn log, `owner_before/owner_after` mô tả **execution ownership**:
+    +component nào đang được quyền xử lý object tiếp theo. Nó không ngụ ý component
+    +đó được phép `free()` vùng nhớ.
+    +
+    +Ví dụ, khi ring buffer ghi `owner_after=Reader`, storage vẫn do
+    +`YUVInput` quản lý; `Reader` chỉ trở thành consumer hợp lệ của slot.
+    +
+    +Ngoại lệ quan trọng là `NALList::takeContents`: ở đó pointer buffer thật sự
+    +được chuyển từ `FrameEncoder::m_nalList` sang output `NALList`. Log
+    +`TRANSFER_BEGIN/TRANSFER_DONE` phản ánh memory ownership thật.
+    +
+    +## 3. Thread topology
+    +
+    +| Thread trong log | OS thread ID | Vai trò | Số dòng |
+    +|---|---:|---|---:|
+    +| `YUVRead-0` | 6172471296 | đọc/prefetch raw YUV vào ring | 10 |
+    +| `Reader-0` | 6174191616 | copy raw picture sang AbrEncoder input queue | 4 |
+    +| `PassEncoder-0` | 6173618176 | điều phối encode API và ghi output | 36 |
+    +| `FrameEncoder-0` | 6173044736 | compress frame, analysis/entropy CTU, tạo NAL | 341 |
+    +
+    +`main` không xuất hiện vì trace bắt đầu ở các worker sau giai đoạn CLI/setup.
+    +`Lookahead` xuất hiện như một component logic nhưng không có thread riêng
+    +trong trace này. Với `lookaheadDepth=0`, không nên tự suy ra rằng mọi
+    +`Lookahead` đều luôn có một worker riêng.
+    +
+    +`FrameEncoder-0` báo:
+    +
+    +```text
+    +[THREAD worker=FrameEncoder-0 role=frame-worker] START pool=0x0
+    +```
+    +
+    +`pool=0x0` xác nhận không có general worker pool. Vì vậy việc log không có
+    +`Worker-0`, `Worker-1`, ... là đúng với cấu hình, không phải mất event.
+    +
+    +## 4. Các channel và cơ chế đồng bộ
+    +
+    +| Channel | Producer | Consumer | Payload/ý nghĩa | Cơ chế quan sát được |
+    +|---|---|---|---|---|
+    +| `yuv-ring` | `YUVRead-0` | `Reader-0` | raw planar YUV slot | read/write counters, wait khi full/empty |
+    +| `input-pic-buffer` | `Reader-0` | `PassEncoder-0` | copied pixel buffer + `x265_picture` metadata | picture counters và queue slot |
+    +| `lookahead-input` | `Encoder` | `Lookahead` | internal `Frame` | logical queue/handoff |
+    +| `frame-start` | `Encoder` | `FrameEncoder-0` | `Frame@0xc44614000` | `m_enable.trigger()/wait()` |
+    +| `frame-done` | `FrameEncoder-0` | `Encoder` | completed frame + NAL list | `m_done.trigger()/wait()` |
+    +| `nal-output` | `FrameEncoder` | `Encoder` | access-unit buffer | real buffer ownership transfer |
+    +| raw output | `PassEncoder-0` | output file | five NAL payloads | synchronous `fwrite()` |
+    +
+    +Không có socket, pipe, shared memory giữa process hoặc message broker. “IPC”
+    +trong cách đọc log này nên hiểu là **inter-thread communication**.
+    +
+    +## 5. Sơ đồ tổng thể
+    +
+    +```mermaid
+    +flowchart LR
+    +    File[(Raw YUV file)]
+    +
+    +    subgraph Process[One x265 process]
+    +        Y[YUVRead-0]
+    +        QR[[yuv-ring<br/>5 slots, tối đa 4 unread]]
+    +        R[Reader-0]
+    +        QA[[input-pic-buffer]]
+    +        P[PassEncoder-0]
+    +        E[Encoder]
+    +        L[Lookahead logic]
+    +        FS[[frame-start event]]
+    +        F[FrameEncoder-0<br/>pool = null]
+    +        FD[[frame-done event]]
+    +        N[[NAL buffer]]
+    +        O[RAWOutput]
+    +    end
+    +
+    +    Out[(step1_output_1f.h265)]
+    +
+    +    File -->|fread 115200 B| Y
+    +    Y -->|publish raw slot| QR
+    +    QR -->|same raw pointer| R
+    +    R -->|memcpy 115200 B| QA
+    +    QA -->|metadata + pixel pointer| P
+    +    P -->|encoder_encode| E
+    +    E -->|Frame@0xc44614000| L
+    +    L -->|selected frame| E
+    +    E -->|trigger| FS
+    +    FS --> F
+    +    F -->|80 CTU sequentially| F
+    +    F -->|5 Annex-B NAL| N
+    +    F -->|trigger| FD
+    +    FD --> E
+    +    N -->|takeContents| E
+    +    E -->|return NAL descriptors| P
+    +    P --> O
+    +    O -->|fwrite 9753 B| Out
+    +```
+    +
+    +## 6. Sequence diagram end-to-end
+    +
+    +```mermaid
+    +sequenceDiagram
+    +    autonumber
+    +    participant Y as YUVRead-0
+    +    participant QY as yuv-ring
+    +    participant R as Reader-0
+    +    participant QA as input-pic-buffer
+    +    participant P as PassEncoder-0
+    +    participant E as Encoder/Lookahead
+    +    participant F as FrameEncoder-0
+    +    participant N as NALList
+    +    participant O as RAWOutput
+    +
+    +    Y->>QY: PUBLISH frame 0, slot 0, 115200 B
+    +    Y->>QY: PUBLISH frames 1..3
+    +    Y-->>Y: WAIT queue-full
+    +
+    +    R->>QY: RECEIVE frame 0 (same raw pointer)
+    +    QY-->>Y: read_count changes; wake producer
+    +    R->>QA: memcpy 115200 B to new pixel buffer
+    +    R->>QA: PUBLISH x265_picture slot 0
+    +    R-->>R: STOP after requested frame count
+    +
+    +    P->>QA: RECEIVE frame 0
+    +    P->>E: encoder_encode(picInput, POC 0)
+    +    E->>E: copy input into internal Frame
+    +    E->>E: addPicture to Lookahead
+    +    E->>F: HANDOFF Frame@0xc44614000 + trigger frame-start
+    +    P-->>F: WAIT frame-done
+    +
+    +    activate F
+    +    F->>N: serialize VPS/SPS/PPS/prefix SEI
+    +    loop CTU 0..79
+    +        F->>F: Analysis::compressCTU
+    +        F->>F: Entropy::encodeCTU / row context
+    +    end
+    +    F->>N: append one slice substream
+    +    F->>N: serialize IDR_N_LP
+    +    F-->>P: trigger frame-done, five NAL
+    +    deactivate F
+    +
+    +    P->>N: takeContents (real buffer transfer)
+    +    E-->>P: encoder_encode returns encoded=1, nal_count=5
+    +    P->>O: writeFrame(five NAL)
+    +    O-->>P: WRITE_DONE 9753 B
+    +
+    +    P->>E: encoder_encode(NULL) at normal call site
+    +    E-->>P: encoded=0
+    +    P->>E: encoder_encode(NULL) in explicit flush loop
+    +    E-->>P: encoded=0
+    +    P->>F: shutdown
+    +```
+    +
+    +## 7. Phase A — Input prefetch và ring buffer
+    +
+    +### 7.1 Frame 0 được đọc vào ring
+    +
+    +Log L1–L8 cho thấy `YUVRead-0` chạy trước `Reader-0`:
+    +
+    +- frame 0: slot 0, `raw-yuv@0xc44800000`;
+    +- frame 1: slot 1;
+    +- frame 2: slot 2;
+    +- frame 3: slot 3;
+    +- sau đó producer chờ vì queue full.
+    +
+    +Mỗi frame là 115200 byte:
+    +
+    +```text
+    +320 * 240                           = 76800 luma bytes
+    +(320 / 2) * (240 / 2) * 2 planes   = 38400 chroma bytes
+    +total                               = 115200 bytes
+    +```
+    +
+    +Ring có `QUEUE_SIZE=5` nhưng chỉ cho tối đa bốn unread frame để phân biệt
+    +trạng thái full và empty. Vì vậy producer chờ tại `write_count=4,
+    +read_count=0`.
+    +
+    +Khi `Reader-0` nhận frame 0 ở L11, `read_count` thay đổi. `YUVRead-0`
+    +thức dậy sau khoảng 184 microsecond, đọc thêm frame 4 vào slot 4 rồi lại chờ.
+    +
+    +Đây là lý do `--frames 1` vẫn có năm lần `fread`: giới hạn encode được áp
+    +dụng ở consumer, còn input thread được phép prefetch độc lập.
+    +
+    +### 7.2 Reader thực hiện deep copy
+    +
+    +Hai pointer quan trọng:
+    +
+    +```text
+    +YUVInput ring source: 0xc44800000
+    +AbrEncoder destination pixels: 0xc445f4000
+    +```
+    +
+    +Địa chỉ khác nhau và event ghi `bytes=115200`. Kết hợp với
+    +`memcpy(dest->planes[0], src->planes[0], src->framesize)` trong
+    +[`source/abrEncApp.cpp`](./source/abrEncApp.cpp), ta xác nhận đây là deep
+    +copy pixel data.
+    +
+    +Sau copy, queue object là `x265-picture@0xc454b0000`. `Reader-0` publish
+    +slot 0 rồi dừng vì chỉ cần một input frame.
+    +
+    +### 7.3 PassEncoder chỉ chuyển metadata/con trỏ
+    +
+    +`PassEncoder-0` nhận queue object ở L17:
+    +
+    +```text
+    +queue x265_picture: 0xc454b0000
+    +pixels:             0xc445f4000
+    +```
+    +
+    +Tại public API call ở L18:
+    +
+    +```text
+    +stack picInput:     0x16ff9ad08
+    +pixels:             0xc445f4000
+    +```
+    +
+    +Object `x265_picture` đổi địa chỉ, nhưng `planes[0]` vẫn là
+    +`0xc445f4000`. Nghĩa là `PassEncoder::readPicture` copy metadata và plane
+    +pointers sang local picture; nó không copy pixel lần thứ hai.
+    +
+    +### Sequence riêng cho input ownership
+    +
+    +```mermaid
+    +sequenceDiagram
+    +    participant F as Input file
+    +    participant Y as YUVRead-0
+    +    participant Q as YUVInput ring
+    +    participant R as Reader-0
+    +    participant A as AbrEncoder buffer
+    +    participant P as PassEncoder-0
+    +
+    +    F->>Y: fread 115200 B
+    +    Y->>Q: slot 0 = raw-yuv@0xc44800000
+    +    Note over Q: Storage owner = YUVInput
+    +    Q-->>R: expose same raw pointer
+    +    R->>A: memcpy to pixels@0xc445f4000
+    +    Note over A: Storage owner = AbrEncoder input buffer
+    +    A-->>P: metadata + planes pointers
+    +    Note over P: picInput object changes<br/>pixel pointer remains unchanged
+    +```
+    +
+    +## 8. Phase B — Public API và zero-latency
+    +
+    +`PassEncoder-0` gọi:
+    +
+    +```text
+    +encoder_encode(
+    +    picInput = 0x16ff9ad08,
+    +    pixels   = 0xc445f4000,
+    +    POC      = 0)
+    +```
+    +
+    +`Encoder::encode` bắt đầu với:
+    +
+    +```text
+    +mode=submit
+    +input_poc=0
+    +delayed=0
+    +```
+    +
+    +Encoder tạo internal `Frame@0xc44614000`, publish nó tới
+    +`lookahead-input`, sau đó giao đúng pointer này cho `FrameEncoder-0`.
+    +
+    +Input API call bắt đầu ở `17:18:54.202641` và trả về ở
+    +`17:18:54.241202`, khoảng 38.561 ms:
+    +
+    +```text
+    +encoded=1
+    +nal_count=5
+    +delayed=0
+    +```
+    +
+    +Đây là bằng chứng runtime của zero-latency trong profile này: frame 0 không bị
+    +giữ lại cho một call input/flush sau.
+    +
+    +### Tại sao PassEncoder chờ dù gọi là zero-latency?
+    +
+    +Zero-latency không có nghĩa là mọi thứ chạy trên cùng thread hoặc API không
+    +block. Nó có nghĩa là không giữ frame để reorder/lookahead nhiều frame.
+    +
+    +Flow vẫn là:
+    +
+    +1. `PassEncoder-0` giao frame cho `FrameEncoder-0`;
+    +2. `FrameEncoder-0` chạy song song trên OS thread khác;
+    +3. `PassEncoder-0` chờ `frame-done`;
+    +4. API chỉ return khi frame hiện tại hoàn tất.
+    +
+    +Wait từ L26 đến L364 kéo dài khoảng 37.565 ms, gần trùng
+    +`compressFrame elapsed_us=37509`.
+    +
+    +## 9. Phase C — Frame scheduling và CTU
+    +
+    +### 9.1 Event handshake
+    +
+    +`FrameEncoder-0` khởi động sớm rồi chờ:
+    +
+    +```text
+    +frame-start WAIT_BEGIN reason=no-frame
+    +```
+    +
+    +`PassEncoder-0`, thông qua `Encoder`, gán `m_frame` và trigger
+    +`frame-start`. Frame thread thức dậy với cùng object:
+    +
+    +```text
+    +Frame@0xc44614000
+    +```
+    +
+    +Trong lúc frame thread compress, `PassEncoder-0` chờ `frame-done`. Khi
+    +compress xong, frame thread publish completion và quay lại chờ frame tiếp theo.
+    +
+    +```mermaid
+    +sequenceDiagram
+    +    participant P as PassEncoder-0 / Encoder
+    +    participant S as frame-start Event
+    +    participant F as FrameEncoder-0
+    +    participant D as frame-done Event
+    +
+    +    F->>S: wait()
+    +    P->>F: set m_frame = Frame@0xc44614000
+    +    P->>S: trigger()
+    +    S-->>F: wake
+    +    P->>D: wait()
+    +    activate F
+    +    F->>F: compressFrame(layer 0)
+    +    F->>D: trigger()
+    +    deactivate F
+    +    D-->>P: wake
+    +    F->>S: wait for next frame
+    +```
+    +
+    +### 9.2 Tại sao có 80 CTU?
+    +
+    +Preset `ultrafast` đặt `maxCUSize=32`. Với frame 320x240:
+    +
+    +```text
+    +columns = ceil(320 / 32) = 10
+    +rows    = ceil(240 / 32) = 8
+    +CTUs    = 10 * 8         = 80
+    +```
+    +
+    +Mapping address:
+    +
+    +```text
+    +row 0:  ctu  0  1  2  3  4  5  6  7  8  9
+    +row 1:  ctu 10 11 12 13 14 15 16 17 18 19
+    +row 2:  ctu 20 21 22 23 24 25 26 27 28 29
+    +row 3:  ctu 30 31 32 33 34 35 36 37 38 39
+    +row 4:  ctu 40 41 42 43 44 45 46 47 48 49
+    +row 5:  ctu 50 51 52 53 54 55 56 57 58 59
+    +row 6:  ctu 60 61 62 63 64 65 66 67 68 69
+    +row 7:  ctu 70 71 72 73 74 75 76 77 78 79
+    +```
+    +
+    +Hàng cuối chỉ phủ 16 pixel chiều cao còn lại của frame.
+    +
+    +Vì `--no-wpp --pools none`, log cho thấy CTU chạy đúng thứ tự raster
+    +`0, 1, ..., 79`, tất cả trên OS thread ID 6173044736. Không có row chạy xen
+    +kẽ và không có job được giao cho `Worker-N`.
+    +
+    +### 9.3 Hai stage được log cho mỗi CTU
+    +
+    +Mỗi CTU có bốn event:
+    +
+    +1. `BEGIN stage=analysis`;
+    +2. `DONE stage=analysis`;
+    +3. `BEGIN stage=row-context`;
+    +4. `DONE stage=row-context`.
+    +
+    +`analysis` gọi `Analysis::compressCTU`, thử các partition/mode được preset
+    +cho phép và trả về top-level `Mode& best`.
+    +
+    +`row-context` gọi `Entropy::encodeCTU` để cập nhật CABAC state và, khi SAO
+    +tắt như preset ultrafast, đồng thời tạo final CTU substream. Vì SAO tắt, trace
+    +này không đi qua nhánh encode lại `stage=final-bitstream`.
+    +
+    +### 9.4 Ý nghĩa các field CTU
+    +
+    +Ví dụ CTU 0:
+    +
+    +```text
+    +pred_mode=2
+    +depth=1
+    +rd_cost=51724
+    +bits=3006
+    +```
+    +
+    +- `pred_mode=2` là `MODE_INTRA` trong `PredMode`.
+    +- `depth` là `best.cu.m_cuDepth[0]`, giá trị tại partition đầu của best CU
+    +  record; nó không phải bản dump đầy đủ toàn bộ CU quadtree.
+    +- `rd_cost` là rate-distortion cost dùng để so sánh candidate.
+    +- `bits` là `best.totalBits` của decision, không phải trực tiếp số byte cuối
+    +  cùng trong NAL.
+    +
+    +Summary của 80 CTU:
+    +
+    +| Metric | Giá trị |
+    +|---|---:|
+    +| `MODE_INTRA` | 80/80 |
+    +| `depth=0` | 33 |
+    +| `depth=1` | 47 |
+    +| tổng logged `totalBits` | 58899 |
+    +| trung bình `totalBits` | 736.24 |
+    +| min bits | 3 tại CTU 34 |
+    +| max bits | 4523 tại CTU 56 |
+    +| trung bình `rd_cost` | 14741.25 |
+    +| min `rd_cost` | 39 tại CTU 34 |
+    +| max `rd_cost` | 83681 tại CTU 56 |
+    +
+    +Timing quan sát được:
+    +
+    +| Stage | Tổng | Trung bình/CTU | Min | Max |
+    +|---|---:|---:|---:|---:|
+    +| analysis | 22656 µs | 283.20 µs | 47 µs (CTU 79) | 1802 µs (CTU 0) |
+    +| row-context | 1667 µs | 20.84 µs | 4 µs (CTU 69) | 84 µs (CTU 53) |
+    +
+    +CTU 0 chậm nhất không tự động có nghĩa nội dung CTU 0 phức tạp nhất; lần đầu
+    +còn có thể chịu warm-up/cache/initialization effects. Muốn benchmark thuật toán
+    +cần trace chuyên biệt không `fflush` từng dòng.
+    +
+    +## 10. Phase D — Bitstream và NAL
+    +
+    +### 10.1 NAL được tạo trong lần chạy
+    +
+    +| Index | Type | Tên HEVC | RBSP/substream quan sát được | NAL bytes |
+    +|---:|---:|---|---:|---:|
+    +| 0 | 32 | VPS | 19 | 28 |
+    +| 1 | 33 | SPS | 33 | 42 |
+    +| 2 | 34 | PPS | 4 | 10 |
+    +| 3 | 39 | prefix SEI | 2291 | 2296 |
+    +| 4 | 20 | IDR_N_LP slice | 2-byte slice RBSP + 7370-byte substream | 7377 |
+    +| | | **Tổng ghi file** | | **9753** |
+    +
+    +`annexb=1` xác nhận output dùng Annex-B start codes. `NALList::serialize`
+    +thêm NAL header, start-code prefix và emulation-prevention bytes; do đó
+    +`NAL bytes` không nhất thiết bằng `RBSP bytes + một hằng số`.
+    +
+    +VPS/SPS/PPS được tạo bên trong `FrameEncoder::compressFrame` và nằm trong
+    +cùng access unit được `writeFrame` ghi. Không có event
+    +`OUTPUT kind=headers` riêng. Từ source, đây là hành vi tương ứng với resolved
+    +configuration bật repeat headers; log hiện tại chứng minh hành vi nhưng không
+    +ghi nguyên nhân option được bật ở đâu.
+    +
+    +### 10.2 Vì sao `access_unit_bits=59536` nhưng ghi 9753 byte?
+    +
+    +`59536 / 8 = 7442` byte. Con số này được tính cho rate control:
+    +
+    +- loại prefix/suffix SEI;
+    +- loại Annex-B start-code prefixes;
+    +- vẫn tính VPS/SPS/PPS và coded slice.
+    +
+    +Đối chiếu chính xác:
+    +
+    +```text
+    +VPS:  28 - 4-byte start code =   24
+    +SPS:  42 - 4-byte start code =   38
+    +PPS:  10 - 4-byte start code =    6
+    +SEI:  excluded               =    0
+    +IDR: 7377 - 3-byte start code = 7374
+    +                                  ----
+    +                                  7442 bytes
+    +                                  59536 bits
+    +```
+    +
+    +`RAWOutput` thì ghi toàn bộ năm NAL, gồm SEI và start codes:
+    +
+    +```text
+    +28 + 42 + 10 + 2296 + 7377 = 9753 bytes
+    +```
+    +
+    +Hai con số đo hai phạm vi khác nhau; chúng không mâu thuẫn.
+    +
+    +### 10.3 Real ownership transfer trong `takeContents`
+    +
+    +Trước transfer:
+    +
+    +```text
+    +FrameEncoder NAL buffer = 0xc45028000
+    +bytes                   = 9753
+    +nal_count               = 5
+    +```
+    +
+    +`NALList::takeContents`:
+    +
+    +1. giải phóng buffer output cũ;
+    +2. gán output buffer bằng pointer `0xc45028000`;
+    +3. copy năm descriptor `x265_nal`;
+    +4. reset list của frame encoder;
+    +5. cấp replacement buffer `0xc4502a800` cho frame encoder.
+    +
+    +Sau transfer, Encoder giữ buffer cũ và FrameEncoder có replacement để encode
+    +frame tiếp theo. Đây là move-like ownership transfer, không phải copy 9753 byte.
+    +
+    +```mermaid
+    +sequenceDiagram
+    +    participant F as FrameEncoder::m_nalList
+    +    participant O as Encoder output NALList
+    +    participant P as PassEncoder-0
+    +    participant R as RAWOutput
+    +
+    +    Note over F: buffer=0xc45028000<br/>5 NAL, 9753 B
+    +    F->>O: takeContents()
+    +    Note over O: takes buffer=0xc45028000
+    +    Note over F: replacement=0xc4502a800
+    +    O-->>P: x265_nal descriptors + payload pointers
+    +    P->>R: write NAL 0..4
+    +    Note over R: payload pointers remain inside<br/>0xc45028000 contiguous buffer
+    +    R-->>P: 9753 bytes written
+    +```
+    +
+    +Các payload pointer khi ghi là:
+    +
+    +```text
+    +NAL 0: 0xc45028000  offset    0
+    +NAL 1: 0xc4502801c  offset   28
+    +NAL 2: 0xc45028046  offset   70
+    +NAL 3: 0xc45028050  offset   80
+    +NAL 4: 0xc45028948  offset 2376
+    +```
+    +
+    +Chúng nối tiếp chính xác trong cùng buffer. Pointer
+    +`nals=0xc44412c40` ở API return là địa chỉ array descriptor `x265_nal`, không
+    +phải địa chỉ payload buffer.
+    +
+    +## 11. Flush và shutdown
+    +
+    +Sau khi frame 0 được ghi, có hai API call với input null:
+    +
+    +1. call tại normal encode call site, log dưới dạng `frame=-1`;
+    +2. call trong explicit `Flush the encoder` loop, log dưới dạng
+    +   `mode=flush`.
+    +
+    +Cả hai trả:
+    +
+    +```text
+    +encoded=0
+    +nal_count=0
+    +delayed=0
+    +```
+    +
+    +Call đầu xuất hiện vì vòng input bước sang iteration tiếp theo và phát hiện đã
+    +đủ `--frames 1`, nên `picInput` trở thành null ngay tại call site bình
+    +thường. Sau khi thoát vòng input, CLI vẫn chạy flush loop chuẩn.
+    +
+    +`Encoder::encode END` vẫn có thể in `nal_count=5` vì internal
+    +`m_nalList` còn descriptor của access unit trước. Public API đặt
+    +`pi_nal=0` khi `numEncoded==0`; vì vậy không có năm NAL nào được ghi lần
+    +thứ hai.
+    +
+    +Cuối cùng:
+    +
+    +- `FrameEncoder-0` thức dậy với `reason=shutdown`, object null, rồi dừng;
+    +- `PassEncoder-0` dừng với `input_frames=1 output_frames=1`;
+    +- `YUVRead-0` thoát khỏi wait và dừng.
+    +
+    +## 12. Timeline rút gọn
+    +
+    +| Mốc | Timestamp | Delta đáng chú ý |
+    +|---|---|---:|
+    +| trace bắt đầu | 17:18:54.200143 | — |
+    +| publish raw frame 0 | 17:18:54.201692 | +1.549 ms |
+    +| Reader nhận raw frame 0 | 17:18:54.202522 | +0.830 ms |
+    +| Reader publish copied picture | 17:18:54.202583 | copy/handoff 61 µs |
+    +| API submit call | 17:18:54.202641 | +58 µs |
+    +| FrameEncoder bắt đầu compress | 17:18:54.203553 | +0.912 ms |
+    +| FrameEncoder hoàn tất | 17:18:54.241071 | 37.518 ms theo timestamps |
+    +| API trả `encoded=1` | 17:18:54.241202 | API call 38.561 ms |
+    +| output write hoàn tất | 17:18:54.241278 | write 70 µs |
+    +| trace kết thúc | 17:18:54.241690 | tổng khoảng 41.547 ms |
+    +
+    +Các số này dùng để hiểu ordering và blocking, không phải benchmark. Logger dùng
+    +global lock và `fflush()` mỗi dòng, đặc biệt 320 CTU event sẽ làm thay đổi
+    +timing.
+    +
+    +## 13. Ownership theo object
+    +
+    +| Object | Storage/lifetime owner | Producer/step owner | Consumer tiếp theo | Copy? |
+    +|---|---|---|---|---|
+    +| raw slot `0xc44800000` | `YUVInput` | `YUVRead-0` | `Reader-0` | `fread` vào slot |
+    +| input pixels `0xc445f4000` | AbrEncoder input buffer | `Reader-0` | `PassEncoder-0` | deep copy 115200 B |
+    +| local `picInput` | stack của PassEncoder | `PassEncoder-0` | `Encoder::encode` | metadata/pointers only |
+    +| `Frame@0xc44614000` | Encoder/DPB lifecycle | Encoder rồi FrameEncoder | Encoder output path | input copied vào internal frame |
+    +| CTU objects | `FrameData` của frame | `FrameEncoder-0` | entropy/bitstream | in-place decisions |
+    +| NAL buffer `0xc45028000` | FrameEncoder trước transfer, Encoder sau transfer | `NALList` | PassEncoder/RAWOutput | pointer moved, descriptors copied |
+    +| output file handle | `RAWOutput` | `PassEncoder-0` | filesystem | synchronous writes |
+    +
+    +## 14. Source mapping
+    +
+    +| Flow | Source chính |
+    +|---|---|
+    +| raw YUV ring | [`source/input/yuv.cpp`](./source/input/yuv.cpp) |
+    +| Reader queue và API loop | [`source/abrEncApp.cpp`](./source/abrEncApp.cpp) |
+    +| input frame, lookahead, frame scheduling | [`source/encoder/encoder.cpp`](./source/encoder/encoder.cpp) |
+    +| frame thread, CTU, done event | [`source/encoder/frameencoder.cpp`](./source/encoder/frameencoder.cpp) |
+    +| mode enum | [`source/common/cudata.h`](./source/common/cudata.h) |
+    +| NAL serialization/ownership | [`source/encoder/nal.cpp`](./source/encoder/nal.cpp) |
+    +| raw Annex-B output | [`source/output/raw.cpp`](./source/output/raw.cpp) |
+    +| worker pool khi bật pools | [`source/common/threadpool.cpp`](./source/common/threadpool.cpp) |
+    +
+    +## 15. Cách lọc log khi tiếp tục khám phá
+    +
+    +Chỉ xem thread lifecycle:
+    +
+    +```bash
+    +rg '\[THREAD ' step1_1.4.log
+    +```
+    +
+    +Bỏ 320 dòng CTU để xem orchestration:
+    +
+    +```bash
+    +rg -v '\[CTU ' step1_1.4.log
+    +```
+    +
+    +Theo một CTU:
+    +
+    +```bash
+    +rg 'ctu=0([^0-9]|$)' step1_1.4.log
+    +```
+    +
+    +Theo frame handoff/wait:
+    +
+    +```bash
+    +rg 'frame-start|frame-done|lookahead-input' step1_1.4.log
+    +```
+    +
+    +Theo NAL ownership và output:
+    +
+    +```bash
+    +rg '\[BITSTREAM|\[OWNERSHIP|\[OUTPUT' step1_1.4.log
+    +```
+    +
+    +## 16. Giới hạn và điều không nên suy ra
+    +
+    +1. Log này chỉ chứng minh flow của đúng profile một frame, zero-latency,
+    +   no-pool, no-WPP. Nó không mô tả scheduling của cấu hình production.
+    +2. Không có `Worker-N` không có nghĩa x265 nói chung không dùng worker pool.
+    +3. `owner_after` thường là quyền xử lý logic, không phải quyền giải phóng
+    +   memory.
+    +4. `bits` trong CTU decision không phải byte count cuối cùng.
+    +5. Timestamp bị ảnh hưởng bởi logger, mutex và `fflush`; không dùng để đánh
+    +   giá performance tuyệt đối.
+    +6. Event `YUVRead STOP reason=input-exhausted` hơi rộng: source cũng có thể
+    +   thoát vì shutdown/release. Trong lần này file còn nhiều frame nhưng chỉ
+    +   encode một frame, nên nên hiểu là “reader loop ended during shutdown”, không
+    +   phải chắc chắn đã đọc tới EOF.
+    +7. Source line number trong log thuộc binary đã build ở lần capture; sau khi
+    +   thêm/xóa instrumentation, line number có thể dịch chuyển.
+    +
+    +## 17. Mental model cuối cùng
+    +
+    +```text
+    +YUVRead owns producing raw slots.
+    +Reader owns consuming one raw slot and copying it into the ABR input buffer.
+    +PassEncoder owns orchestration: API calls, waiting, and output writes.
+    +Encoder owns codec-level state and the internal Frame/DPB lifecycle.
+    +FrameEncoder owns execution of frame compression.
+    +With no pool, FrameEncoder also executes every CTU itself.
+    +NALList moves the completed access-unit buffer back to Encoder.
+    +PassEncoder borrows the returned NAL descriptors long enough to fwrite them.
+    +```
+    +
+    +Điểm cốt lõi là x265 không encode frame trên thread gọi CLI từ đầu đến cuối.
+    +Nó tạo một pipeline producer/consumer nhỏ. Zero-latency loại bỏ frame delay,
+    +nhưng vẫn giữ thread handoff và event synchronization giữa input,
+    +`PassEncoder` và `FrameEncoder`.
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Add File: step1_1.4_flow.md
+    … +748 lines (ctrl + t to view transcript)
+    Success. Updated the following files:
+    A step1_1.4_flow.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Bản tài liệu đã được tạo. Mình đang kiểm tra lại Markdown/Mermaid và đối chiếu output bitstream với ffprobe/file size để bảo đảm phần NAL không chỉ dựa vào phép cộng trong log.
+
+✔ You approved codex to run wc -l step1_1.4_flow.md; rg -n '^```' step1_1.4_flow.md; git diff --check -- ... this time
+
+• Ran wc -l step1_1.4_flow.md; rg -n '^```' step1_1.4_flow.md; git diff --check -- step1_1.4_flow.md; wc -c step1_output_1f.h265; ffprobe -v error -show_entries stream=codec_name,profile,width,height,pix_fmt,r_frame_rate,nb_frames -of
+  │ default=noprint_wrappers=1 step1_output_1f.h265
+  └ 747 step1_1.4_flow.md
+    22:```text
+    … +67 lines (ctrl + t to view transcript)
+    r_frame_rate=10/1
+    nb_frames=N/A
+
+• Explored
+  └ Read master_plan.md
+    Search ^#### 1\.4\.[1-4] in master_plan.md
+
+✔ You approved codex to run apply_patch this time
+
+• Running apply_patch
+  └ *** Begin Patch
+    *** Update File: master_plan.md
+    … +59 lines (ctrl + t to view transcript)
+    M master_plan.md
+    M step1_1.4_flow.md
+
+↳ Interacted with background terminal
+  └ *** Begin Patch
+    *** Update File: master_plan.md
+    @@
+    -### 1.4. Debug flow một frame — IN PROGRESS
+    +### 1.4. Debug flow một frame — DONE
+
+    -Dùng profile `x265: 1 frame (simple flow)` cho cả bốn lượt dưới đây. Mỗi lượt
+    -restart debugger, chỉ bật breakpoint thuộc lượt đó và ghi kết quả vào một log
+    -riêng; không cố step qua mọi hàm ngay lần đầu:
+    +Dùng profile `x265: 1 frame (simple flow)` để tạo một timeline end-to-end.
+    +Bốn tiểu mục 1.4.1–1.4.4 là bốn góc đọc trên cùng capture, không phải bốn lần
+    +encode và bốn bản log trùng nhau:
+    @@
+    -#### 1.4.1. Input boundary — READY
+    +#### 1.4.1. Input boundary — DONE
+    @@
+    -`x265.log` được mở với mode `w`, nên mỗi lần chạy sẽ thay log cũ. Sau khi
+    -xác nhận một lượt khám phá, copy nó thành `step1_1.4.1.log`,
+    -`step1_1.4.2.log`, v.v. để giữ artifact của từng lượt.
+    +`x265.log` được mở với mode `w`, nên mỗi lần chạy sẽ thay log cũ. Capture
+    +đã chốt và phần giải thích:
+    +
+    +- Raw trace: [`step1_1.4.log`](./step1_1.4.log).
+    +- Flow, ownership và sequence diagrams:
+    +  [`step1_1.4_flow.md`](./step1_1.4_flow.md).
+    @@
+    -#### 1.4.2. Public API và zero-latency — TODO
+    +#### 1.4.2. Public API và zero-latency — DONE
+    @@
+    -#### 1.4.3. Frame scheduling và CTU đầu tiên — TODO
+    +#### 1.4.3. Frame scheduling và CTU đầu tiên — DONE
+    @@
+    -#### 1.4.4. Bitstream, NAL ownership và output — TODO
+    +#### 1.4.4. Bitstream, NAL ownership và output — DONE
+    *** Update File: step1_1.4_flow.md
+    @@
+     Hai con số đo hai phạm vi khác nhau; chúng không mâu thuẫn.
+
+    +### 10.3 Xác minh bitstream bằng ffprobe
+    +
+    +Output thực tế có đúng 9753 byte, bằng `WRITE_DONE bytes=9753`. Kết quả
+    +`ffprobe`:
+    +
+    +```text
+    +codec_name=hevc
+    +profile=Main Still Picture
+    +width=320
+    +height=240
+    +pix_fmt=yuv420p
+    +r_frame_rate=10/1
+    +```
+    +
+    +`Main Still Picture` phù hợp với stream chỉ có một still-picture access unit.
+    +`nb_frames=N/A` đối với raw Annex-B HEVC không có nghĩa stream thiếu frame;
+    +raw elementary stream không có container index để ffprobe luôn báo trước số
+    +frame.
+    +
+    -### 10.3 Real ownership transfer trong `takeContents`
+    +### 10.4 Real ownership transfer trong `takeContents`
+    *** End Patch
+
+
+• Ran apply_patch
+  └ *** Begin Patch
+    *** Update File: master_plan.md
+    … +59 lines (ctrl + t to view transcript)
+    M master_plan.md
+    M step1_1.4_flow.md
+
+✔ You approved codex to run git diff --check; wc -l step1_1.4_flow.md; rg -n '^#|^```mermaid|Xác minh bit... this time
+
+• Ran git diff --check; wc -l step1_1.4_flow.md; rg -n '^#|^```mermaid|Xác minh bitstream|Giới hạn và điều không nên suy ra' step1_1.4_flow.md; rg -n '^### 1\.4|^#### 1\.4\.[1-4]|step1_1\.4_flow' master_plan.md; git status --short
+  └ 766 step1_1.4_flow.md
+    1:# Step 1.4 — Flow encode một frame trong x265
+    … +55 lines (ctrl + t to view transcript)
+    ?? step1_1.4.log
+    ?? step1_1.4_flow.md
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• Đã tạo step1_1.4_flow.md:1, gồm:
+
+  - Giải thích format từng dòng log.
+  - Thread topology và các channel đồng bộ.
+  - Phân biệt execution owner với memory owner.
+  - Timeline chi tiết từ YUV tới output.
+  - 4 Mermaid diagrams:
+      - Pipeline tổng thể.
+      - Sequence end-to-end.
+      - Input buffer ownership.
+      - Frame event handshake và NAL ownership transfer.
+
+  - Phân tích 80 CTU, mode/depth/RD cost/timing.
+  - Giải thích 5 NAL và phép tính 9753 byte.
+  - Giải thích hai flush call.
+  - Các giới hạn, điểm dễ hiểu nhầm và lệnh rg để đọc log.
+
+  Các finding đáng chú ý:
+
+  - --frames 1 nhưng input thread prefetch 5 frame.
+  - Không có pool worker; 80 CTU chạy tuần tự trên FrameEncoder-0.
+  - Zero-latency vẫn dùng frame thread và API chờ frame-done.
+  - NALList::takeContents thực sự chuyển buffer, không copy 9753 byte.
+  - access_unit_bits=59536 khác file size vì loại SEI và Annex-B start codes.
+
+  Đã dùng ffprobe xác nhận output:
+
+  HEVC Main Still Picture
+  320x240, yuv420p, 10 fps
+  9753 bytes
+
+  master_plan.md:96 cũng đã chuyển Step 1.4 và bốn tiểu mục sang DONE, đồng thời dùng một capture chung step1_1.4.log:1.
+
+─ Worked for 15m 38s ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Run /review on my current changes
+
+  gpt-5.6-sol high · /app

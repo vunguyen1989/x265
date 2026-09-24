@@ -28,6 +28,7 @@
 #include "x265.h"
 #include "x265cli.h"
 #include "abrEncApp.h"
+#include "flowlog.h"
 
 #if HAVE_VLD
 /* Visual Leak Detector */
@@ -276,6 +277,9 @@ int main(int argc, char **argv)
 #endif
     PROFILE_INIT();
     THREAD_NAME("API", 0);
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=program] START argc=%d owner=API-0",
+                  argc);
 
     GetConsoleTitle(orgConsoleTitle, CONSOLE_TITLE_SIZE);
     SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED);
@@ -295,20 +299,38 @@ int main(int argc, char **argv)
     cliopt[0].orgArgv = argv;
     cliopt[0].argString = argv;
 
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=cli-parse] BEGIN mode=%s encodes=%u owner=API-0",
+                  isAbrLadder ? "abr-ladder" : "single-encode", numEncodes);
+
     if (isAbrLadder)
     {
         if (!parseAbrConfig(abrConfig, cliopt, numEncodes))
+        {
+            X265_FLOW_LOG("API-0",
+                          "[PROCESS stage=cli-parse] FAIL reason=abr-config owner=API-0");
             exit(1);
+        }
         if (!setRefContext(cliopt, numEncodes))
+        {
+            X265_FLOW_LOG("API-0",
+                          "[PROCESS stage=cli-parse] FAIL reason=abr-reference-context owner=API-0");
             exit(1);
+        }
     }
     else if (cliopt[0].parse(argc, argv))
     {
+        X265_FLOW_LOG("API-0",
+                      "[PROCESS stage=cli-parse] FAIL reason=invalid-cli owner=API-0");
         cliopt[0].destroy();
         if (cliopt[0].api)
             cliopt[0].api->param_free(cliopt[0].param);
         exit(1);
     }
+
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=cli-parse] DONE mode=%s encodes=%u owner=API-0",
+                  isAbrLadder ? "abr-ladder" : "single-encode", numEncodes);
 
     int ret = 0;
 
@@ -322,11 +344,23 @@ int main(int argc, char **argv)
         }
     }
 
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=encoder-create] BEGIN encodes=%u owner=API-0",
+                  numEncodes);
     AbrEncoder* abrEnc = new AbrEncoder(cliopt, numEncodes, ret);
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=encoder-create] DONE encodes=%u result=%d owner=API-0",
+                  numEncodes, ret);
     int threadsActive = abrEnc->m_numActiveEncodes.get();
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=encode-wait] BEGIN active_encodes=%d owner=API-0",
+                  threadsActive);
     while (threadsActive)
     {
         threadsActive = abrEnc->m_numActiveEncodes.waitForChange(threadsActive);
+        X265_FLOW_LOG("API-0",
+                      "[PROCESS stage=encode-wait] ACTIVE_CHANGED active_encodes=%d owner=API-0",
+                      threadsActive);
         for (uint8_t idx = 0; idx < numEncodes; idx++)
         {
             if (abrEnc->m_passEnc[idx]->m_ret)
@@ -340,6 +374,12 @@ int main(int argc, char **argv)
         }
     }
 
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=encode-wait] DONE active_encodes=%d result=%d owner=API-0",
+                  threadsActive, ret);
+
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=destroy] BEGIN owner=API-0");
     abrEnc->destroy();
     delete abrEnc;
 
@@ -347,6 +387,8 @@ int main(int argc, char **argv)
         cliopt[idx].destroy();
 
     delete[] cliopt;
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=destroy] DONE owner=API-0");
 
     SetConsoleTitle(orgConsoleTitle);
     SetThreadExecutionState(ES_CONTINUOUS);
@@ -363,5 +405,8 @@ int main(int argc, char **argv)
     assert(VLDReportLeaks() == 0);
 #endif
 
+    X265_FLOW_LOG("API-0",
+                  "[PROCESS stage=program] STOP result=%d owner=API-0",
+                  ret);
     return ret;
 }

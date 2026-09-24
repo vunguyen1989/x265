@@ -24,6 +24,7 @@
 #define _LARGEFILE_SOURCE
 #include "yuv.h"
 #include "common.h"
+#include "flowlog.h"
 
 #include <iostream>
 
@@ -162,6 +163,8 @@ void YUVInput::startReader()
 void YUVInput::threadMain()
 {
     THREAD_NAME("YUVRead", 0);
+    X265_FLOW_LOG("YUVRead-0",
+                  "[THREAD worker=YUVRead-0 role=input-reader] START owner=YUVInput channel=yuv-ring");
     while (threadActive)
     {
         if (!populateFrameQueue())
@@ -170,6 +173,8 @@ void YUVInput::threadMain()
 
     threadActive = false;
     writeCount.poke();
+    X265_FLOW_LOG("YUVRead-0",
+                  "[THREAD worker=YUVRead-0 role=input-reader] STOP reason=input-exhausted channel=yuv-ring");
 }
 bool YUVInput::populateFrameQueue()
 {
@@ -178,16 +183,29 @@ bool YUVInput::populateFrameQueue()
     /* wait for room in the ring buffer */
     int written = writeCount.get();
     int read = readCount.get();
+    bool waited = false;
     while (written - read > QUEUE_SIZE - 2)
     {
+        if (!waited)
+            X265_FLOW_LOG("YUVRead-0",
+                          "[CHANNEL channel=yuv-ring] WAIT_BEGIN reason=queue-full write_count=%d read_count=%d capacity=%d owner=YUVRead-0",
+                          written, read, QUEUE_SIZE);
+        waited = true;
         read = readCount.waitForChange(read);
         if (!threadActive)
             // release() has been called
             return false;
     }
+    if (waited)
+        X265_FLOW_LOG("YUVRead-0",
+                      "[CHANNEL channel=yuv-ring] WAIT_END reason=space-available write_count=%d read_count=%d owner=YUVRead-0",
+                      written, read);
     ProfileScopeEvent(frameRead);
     if (fread(buf[written % QUEUE_SIZE], framesize, 1, ifs) == 1)
     {
+        X265_FLOW_LOG("YUVRead-0",
+                      "[CHANNEL channel=yuv-ring frame=%d] PUBLISH slot=%d object=raw-yuv@%p bytes=%u owner_before=YUVRead-0 owner_after=Reader",
+                      written, written % QUEUE_SIZE, buf[written % QUEUE_SIZE], framesize);
         writeCount.incr();
         return true;
     }
@@ -203,8 +221,20 @@ bool YUVInput::readPicture(x265_picture& pic)
 #if ENABLE_THREADING
 
     /* only wait if the read thread is still active */
+    bool waited = false;
     while (threadActive && read == written)
+    {
+        if (!waited)
+            X265_FLOW_LOG("Reader",
+                          "[CHANNEL channel=yuv-ring frame=%d] WAIT_BEGIN reason=queue-empty read_count=%d write_count=%d owner=Reader",
+                          read, read, written);
+        waited = true;
         written = writeCount.waitForChange(written);
+    }
+    if (waited)
+        X265_FLOW_LOG("Reader",
+                      "[CHANNEL channel=yuv-ring frame=%d] WAIT_END reason=frame-available read_count=%d write_count=%d owner=Reader",
+                      read, read, written);
 
 #else
 
@@ -233,6 +263,9 @@ bool YUVInput::readPicture(x265_picture& pic)
             pic.planes[3] = (char*)pic.planes[2] + pic.stride[2] * (height >> x265_cli_csps[colorSpace].height[2]);
         }
 #endif
+        X265_FLOW_LOG("Reader",
+                      "[CHANNEL channel=yuv-ring frame=%d] RECEIVE slot=%d object=raw-yuv@%p bytes=%u owner_before=YUVRead-0 owner_after=Reader",
+                      read, read % QUEUE_SIZE, pic.planes[0], framesize);
         readCount.incr();
         return true;
     }

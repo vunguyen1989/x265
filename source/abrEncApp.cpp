@@ -26,6 +26,7 @@
 #include "mv.h"
 #include "slice.h"
 #include "param.h"
+#include "flowlog.h"
 
 #include <signal.h>
 #include <errno.h>
@@ -77,6 +78,9 @@ namespace X265_NS {
 
     AbrEncoder::AbrEncoder(CLIOptions cliopt[], uint8_t numEncodes, int &ret)
     {
+        X265_FLOW_LOG("API-0",
+                      "[COMPONENT component=AbrEncoder stage=init] BEGIN encodes=%u owner=API-0",
+                      numEncodes);
         m_numEncodes = numEncodes;
         m_numActiveEncodes.set(numEncodes);
         m_queueSize = (numEncodes > 1) ? X265_INPUT_QUEUE_SIZE : 1;
@@ -85,6 +89,9 @@ namespace X265_NS {
 
         for (uint8_t i = 0; i < m_numEncodes; i++)
         {
+            X265_FLOW_LOG("API-0",
+                          "[COMPONENT component=PassEncoder-%u stage=init] BEGIN owner=API-0",
+                          i);
             m_passEnc[i] = new PassEncoder(i, cliopt[i], this);
             if (!m_passEnc[i])
             {
@@ -92,6 +99,9 @@ namespace X265_NS {
                 ret = 4;
             }
             m_passEnc[i]->init(ret);
+            X265_FLOW_LOG("API-0",
+                          "[COMPONENT component=PassEncoder-%u stage=init] DONE result=%d owner=API-0",
+                          i, ret);
         }
 
         m_numInputViews = (m_passEnc[0]->m_param->numViews > 1) ? m_passEnc[0]->m_param->numViews - !!m_passEnc[0]->m_param->format : 0;
@@ -104,6 +114,10 @@ namespace X265_NS {
         /* start passEncoder worker threads */
         for (uint8_t pass = 0; pass < m_numEncodes; pass++)
             m_passEnc[pass]->startThreads();
+
+        X265_FLOW_LOG("API-0",
+                      "[COMPONENT component=AbrEncoder stage=init] DONE encodes=%u owner=API-0",
+                      m_numEncodes);
     }
 
     bool AbrEncoder::allocBuffers()
@@ -306,7 +320,15 @@ namespace X265_NS {
         * opening an encoder */
 
         if (m_param)
+        {
+            X265_FLOW_LOG("API-0",
+                          "[ENCODER-API call=encoder_open pass=%u] CALL owner_before=API-0 owner_after=Encoder",
+                          m_id);
             m_encoder = m_cliopt.api->encoder_open(m_param);
+            X265_FLOW_LOG("API-0",
+                          "[ENCODER-API call=encoder_open pass=%u] RETURN encoder=%p owner_before=Encoder owner_after=API-0",
+                          m_id, m_encoder);
+        }
         if (!m_encoder)
         {
             x265_log(NULL, X265_LOG_ERROR, "x265_encoder_open() failed for Enc, \n");
@@ -387,18 +409,36 @@ namespace X265_NS {
     {
         /* Start slave worker threads */
         m_threadActive = true;
+        X265_FLOW_LOG("API-0",
+                      "[THREAD-CONTROL worker=PassEncoder-%u action=START_REQUEST owner=API-0]",
+                      m_id);
         start();
+        X265_FLOW_LOG("API-0",
+                      "[THREAD-CONTROL worker=PassEncoder-%u action=START_RETURN owner=API-0]",
+                      m_id);
         /* Start reader threads*/
         if (m_reader != NULL)
         {
             m_reader->m_threadActive = true;
+            X265_FLOW_LOG("API-0",
+                          "[THREAD-CONTROL worker=Reader-%u action=START_REQUEST owner=API-0]",
+                          m_id);
             m_reader->start();
+            X265_FLOW_LOG("API-0",
+                          "[THREAD-CONTROL worker=Reader-%u action=START_RETURN owner=API-0]",
+                          m_id);
         }
         /* Start scaling worker threads */
         if (m_scaler != NULL)
         {
             m_scaler->m_threadActive = true;
+            X265_FLOW_LOG("API-0",
+                          "[THREAD-CONTROL worker=Scaler-%u action=START_REQUEST owner=API-0]",
+                          m_id);
             m_scaler->start();
+            X265_FLOW_LOG("API-0",
+                          "[THREAD-CONTROL worker=Scaler-%u action=START_RETURN owner=API-0]",
+                          m_id);
         }
     }
 
@@ -516,10 +556,20 @@ ret:
         int ipwrite = m_parent->m_picWriteCnt[m_id].get();
 
         bool isAbrLoad = m_cliopt.loadLevel && (m_parent->m_numEncodes > 1);
+        bool waitedForInput = false;
         while (!m_inputOver && (ipread == ipwrite))
         {
+            if (!waitedForInput)
+                X265_FLOW_LOG("PassEncoder",
+                              "[CHANNEL channel=input-pic-buffer pass=%d frame=%d] WAIT_BEGIN reason=queue-empty read_count=%d write_count=%d owner=PassEncoder",
+                              m_id, ipread, ipread, ipwrite);
+            waitedForInput = true;
             ipwrite = m_parent->m_picWriteCnt[m_id].waitForChange(ipwrite);
         }
+        if (waitedForInput)
+            X265_FLOW_LOG("PassEncoder",
+                          "[CHANNEL channel=input-pic-buffer pass=%d frame=%d] WAIT_END reason=picture-available read_count=%d write_count=%d owner=PassEncoder",
+                          m_id, ipread, ipread, ipwrite);
 
         if (m_threadActive && ipread < ipwrite)
         {
@@ -610,6 +660,9 @@ ret:
             pic->format = srcPic->format;
             if (isAbrLoad)
                 pic->analysisData = *analysisData;
+            X265_FLOW_LOG("PassEncoder",
+                          "[CHANNEL channel=input-pic-buffer pass=%d frame=%d] RECEIVE slot=%d object=x265-picture@%p pixels=%p owner_before=Reader owner_after=PassEncoder",
+                          m_id, ipread, readPos, srcPic, srcPic->planes[0]);
             return true;
         }
         else
@@ -619,6 +672,9 @@ ret:
     void PassEncoder::threadMain()
     {
         THREAD_NAME("PassEncoder", m_id);
+        X265_FLOW_LOG("PassEncoder",
+                      "[THREAD worker=PassEncoder-%d role=encode-coordinator] START owner=PassEncoder",
+                      m_id);
 
         while (m_threadActive)
         {
@@ -967,7 +1023,14 @@ ret:
                     else
                         picInput = *pic_in;
 
+                    X265_FLOW_LOG("PassEncoder",
+                                  "[ENCODER-API call=encoder_encode pass=%d frame=%d] CALL input=x265-picture@%p pixels=%p owner_before=PassEncoder owner_after=Encoder",
+                                  m_id, picInput ? picInput->poc : -1, picInput,
+                                  picInput ? picInput->planes[0] : NULL);
                     int numEncoded = api->encoder_encode(m_encoder, &p_nal, &nal, picInput, pic_recon);
+                    X265_FLOW_LOG("PassEncoder",
+                                  "[ENCODER-API call=encoder_encode pass=%d frame=%d] RETURN encoded=%d nal_count=%u nals=%p owner_before=Encoder owner_after=PassEncoder",
+                                  m_id, picInput ? picInput->poc : -1, numEncoded, nal, p_nal);
 
                     int idx = (inFrameCount - 1) % m_parent->m_queueSize;
                     m_parent->m_picIdxReadCnt[m_id][idx].incr();
@@ -1017,7 +1080,13 @@ ret:
             /* Flush the encoder */
             while (!b_ctrl_c)
             {
+                X265_FLOW_LOG("PassEncoder",
+                              "[ENCODER-API call=encoder_encode pass=%d mode=flush] CALL input=NULL owner_before=PassEncoder owner_after=Encoder",
+                              m_id);
                 int numEncoded = api->encoder_encode(m_encoder, &p_nal, &nal, NULL, pic_recon);
+                X265_FLOW_LOG("PassEncoder",
+                              "[ENCODER-API call=encoder_encode pass=%d mode=flush] RETURN encoded=%d nal_count=%u nals=%p owner_before=Encoder owner_after=PassEncoder",
+                              m_id, numEncoded, nal, p_nal);
                 if (numEncoded < 0)
                 {
                     m_ret = 4;
@@ -1103,6 +1172,9 @@ ret:
 
             m_threadActive = false;
             m_parent->m_numActiveEncodes.decr();
+            X265_FLOW_LOG("PassEncoder",
+                          "[THREAD worker=PassEncoder-%d role=encode-coordinator] STOP input_frames=%u output_frames=%u",
+                          m_id, inFrameCount, outFrameCount);
         }
     }
 
@@ -1321,6 +1393,9 @@ ret:
     void Reader::threadMain()
     {
         THREAD_NAME("Reader", m_id);
+        X265_FLOW_LOG("Reader",
+                      "[THREAD worker=Reader-%d role=input-copy] START owner=Reader channel=input-pic-buffer",
+                      m_id);
 
         int QDepth = m_parentEnc->m_parent->m_queueSize;
         x265_picture* src = x265_picture_alloc();
@@ -1338,6 +1413,9 @@ ret:
 
             while (overWritePicBuffer && read < overWritePicBuffer)
             {
+                X265_FLOW_LOG("Reader",
+                              "[CHANNEL channel=input-pic-buffer pass=%d frame=%u] WAIT reason=slot-owned-by-encoder slot=%u generation=%u owner=Reader",
+                              m_id, written, writeIdx, overWritePicBuffer);
                 read = m_parentEnc->m_parent->m_picIdxReadCnt[m_id][writeIdx].waitForChange(read);
             }
 
@@ -1376,6 +1454,9 @@ ret:
                         dest->planes[3] = (char*)dest->planes[2] + src->stride[2] * (src->height >> x265_cli_csps[src->colorSpace].height[2]);
                     }
 #endif
+                    X265_FLOW_LOG("Reader",
+                                  "[CHANNEL channel=input-pic-buffer pass=%d frame=%u] PUBLISH slot=%u object=x265-picture@%p pixels=%p bytes=%u owner_before=Reader owner_after=PassEncoder",
+                                  m_id, written, writeIdx, dest, dest->planes[0], dest->framesize);
                     if (view == m_parentEnc->m_param->numViews - 1 - !!m_parentEnc->m_param->format)
                         m_parentEnc->m_parent->m_picWriteCnt[m_id].incr();
                 }
@@ -1388,5 +1469,8 @@ ret:
             }
         }
         x265_picture_free(src);
+        X265_FLOW_LOG("Reader",
+                      "[THREAD worker=Reader-%d role=input-copy] STOP reason=input-complete channel=input-pic-buffer",
+                      m_id);
     }
 }

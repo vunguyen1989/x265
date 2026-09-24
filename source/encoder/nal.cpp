@@ -25,6 +25,7 @@
 #include "common.h"
 #include "bitstream.h"
 #include "nal.h"
+#include "flowlog.h"
 
 using namespace X265_NS;
 
@@ -41,6 +42,9 @@ NALList::NALList()
 
 void NALList::takeContents(NALList& other)
 {
+    X265_FLOW_LOG("PassEncoder",
+                  "[OWNERSHIP object=nal-buffer@%p] TRANSFER_BEGIN bytes=%u nal_count=%u owner_before=FrameEncoder owner_after=Encoder",
+                  other.m_buffer, other.m_occupancy, other.m_numNal);
     /* take other NAL buffer, discard our old one */
     X265_FREE(m_buffer);
     m_buffer = other.m_buffer;
@@ -55,6 +59,9 @@ void NALList::takeContents(NALList& other)
     other.m_numNal = 0;
     other.m_occupancy = 0;
     other.m_buffer = X265_MALLOC(uint8_t, m_allocSize);
+    X265_FLOW_LOG("PassEncoder",
+                  "[OWNERSHIP object=nal-buffer@%p] TRANSFER_DONE bytes=%u nal_count=%u replacement=%p owner=Encoder",
+                  m_buffer, m_occupancy, m_numNal, other.m_buffer);
 }
 
 void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs, int layerId, uint8_t temporalID)
@@ -65,6 +72,10 @@ void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs, int layerI
     const uint8_t* bpayload = bs.getFIFO();
     if (!bpayload)
         return;
+    X265_FLOW_LOG("FrameEncoder",
+                  "[BITSTREAM stage=nal-serialize nal_index=%u nal_type=%d layer=%d temporal_id=%u] BEGIN rbsp=%p rbsp_bytes=%u annexb=%d owner=FrameEncoder",
+                  m_numNal, (int)nalUnitType, layerId, (unsigned)temporalID,
+                  bpayload, payloadSize, (int)m_annexB);
 
     uint32_t nextSize = m_occupancy + sizeof(startCodePrefix) + 2 + payloadSize + (payloadSize >> 1) + m_extraOccupancy;
     if (nextSize > m_allocSize)
@@ -170,12 +181,18 @@ void NALList::serialize(NalUnitType nalUnitType, const Bitstream& bs, int layerI
     nal.type = nalUnitType;
     nal.sizeBytes = bytes;
     nal.payload = out;
+    X265_FLOW_LOG("FrameEncoder",
+                  "[BITSTREAM stage=nal-serialize nal_index=%u nal_type=%d] DONE payload=%p bytes=%u access_unit_bytes=%u owner=FrameEncoder",
+                  m_numNal - 1, (int)nalUnitType, nal.payload, nal.sizeBytes, m_occupancy);
 }
 
 /* concatenate and escape WPP sub-streams, return escaped row lengths.
  * These streams will be appended to the next serialized NAL */
 uint32_t NALList::serializeSubstreams(uint32_t* streamSizeBytes, uint32_t streamCount, const Bitstream* streams)
 {
+    X265_FLOW_LOG("FrameEncoder",
+                  "[BITSTREAM stage=substream-serialize] BEGIN stream_count=%u owner=FrameEncoder",
+                  streamCount);
     uint32_t maxStreamSize = 0;
     uint32_t estSize = 0;
     for (uint32_t s = 0; s < streamCount; s++)
@@ -230,5 +247,8 @@ uint32_t NALList::serializeSubstreams(uint32_t* streamSizeBytes, uint32_t stream
     }
 
     m_extraOccupancy = bytes;
+    X265_FLOW_LOG("FrameEncoder",
+                  "[BITSTREAM stage=substream-serialize] DONE stream_count=%u bytes=%u max_stream_bytes=%u owner=FrameEncoder",
+                  streamCount, bytes, maxStreamSize);
     return maxStreamSize;
 }

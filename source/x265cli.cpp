@@ -27,6 +27,7 @@
 
 #include "x265cli.h"
 #include "svt.h"
+#include "flowlog.h"
 
 #define START_CODE 0x00000001
 #define START_CODE_BYTES 4
@@ -1035,7 +1036,15 @@ namespace X265_NS {
         }
 
         for (int view = 0; view < param->numViews - !!param->format; view++)
+        {
+            X265_FLOW_LOG("API-0",
+                          "[THREAD-CONTROL worker=InputReader-%d action=START_REQUEST source=%s owner=API-0]",
+                          view, input[view]->getName());
             this->input[view]->startReader();
+            X265_FLOW_LOG("API-0",
+                          "[THREAD-CONTROL worker=InputReader-%d action=START_RETURN source=%s owner=API-0]",
+                          view, input[view]->getName());
+        }
 
         if (reconfn[0])
         {

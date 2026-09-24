@@ -24,6 +24,7 @@
 
 #include "common.h"
 #include "threadpool.h"
+#include "flowlog.h"
 #include "threading.h"
 
 #include <new>
@@ -124,6 +125,9 @@ public:
 void WorkerThread::threadMain()
 {
     THREAD_NAME("Worker", m_id);
+    X265_FLOW_LOG("Worker",
+                  "[THREAD worker=Worker-%d role=pool-worker] START pool=%p owner=ThreadPool",
+                  m_id, &m_pool);
 
 #if _WIN32
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
@@ -139,13 +143,25 @@ void WorkerThread::threadMain()
 
     SLEEPBITMAP_OR(&m_curJobProvider->m_ownerBitmap, idBit);
     SLEEPBITMAP_OR(&m_pool.m_sleepBitmap, idBit);
+    X265_FLOW_LOG("Worker",
+                  "[WORKER worker=Worker-%d] WAIT_BEGIN reason=idle provider=%d owner=JobProvider-%d",
+                  m_id, m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
     m_wakeEvent.wait();
+    X265_FLOW_LOG("Worker",
+                  "[WORKER worker=Worker-%d] WAIT_END reason=work-available provider=%d owner=JobProvider-%d",
+                  m_id, m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
 
     while (m_pool.m_isActive)
     {
         if (m_bondMaster)
         {
+            X265_FLOW_LOG("Worker",
+                          "[JOB worker=Worker-%d kind=bonded-task object=%p] BEGIN owner=Worker-%d",
+                          m_id, m_bondMaster, m_id);
             m_bondMaster->processTasks(m_id);
+            X265_FLOW_LOG("Worker",
+                          "[JOB worker=Worker-%d kind=bonded-task object=%p] DONE owner=Worker-%d",
+                          m_id, m_bondMaster, m_id);
             m_bondMaster->m_exitedPeerCount.incr();
             m_bondMaster = NULL;
         }
@@ -153,7 +169,14 @@ void WorkerThread::threadMain()
         do
         {
             /* do pending work for current job provider */
+            X265_FLOW_LOG("Worker",
+                          "[JOB worker=Worker-%d kind=provider-work provider=%d] BEGIN owner=JobProvider-%d",
+                          m_id, m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
             m_curJobProvider->findJob(m_id);
+            X265_FLOW_LOG("Worker",
+                          "[JOB worker=Worker-%d kind=provider-work provider=%d] END help_wanted=%d owner=JobProvider-%d",
+                          m_id, m_curJobProvider->m_jpId,
+                          (int)(bool)m_curJobProvider->m_helpWanted, m_curJobProvider->m_jpId);
 
             /* if the current job provider still wants help, only switch to a
              * higher priority provider (lower slice type). Else take the first
@@ -172,9 +195,13 @@ void WorkerThread::threadMain()
             }
             if (nextProvider != -1 && m_curJobProvider != m_pool.m_jpTable[nextProvider])
             {
+                int previousProvider = m_curJobProvider->m_jpId;
                 SLEEPBITMAP_AND(&m_curJobProvider->m_ownerBitmap, ~idBit);
                 m_curJobProvider = m_pool.m_jpTable[nextProvider];
                 SLEEPBITMAP_OR(&m_curJobProvider->m_ownerBitmap, idBit);
+                X265_FLOW_LOG("Worker",
+                              "[OWNERSHIP worker=Worker-%d] TRANSFER owner_before=JobProvider-%d owner_after=JobProvider-%d reason=higher-priority",
+                              m_id, previousProvider, m_curJobProvider->m_jpId);
             }
         }
         while (m_curJobProvider->m_helpWanted);
@@ -183,10 +210,20 @@ void WorkerThread::threadMain()
          * worker's sleep bitmap bit. Once acquired, that thread may modify 
          * m_bondMaster or m_curJobProvider, then waken the thread */
         SLEEPBITMAP_OR(&m_pool.m_sleepBitmap, idBit);
+        X265_FLOW_LOG("Worker",
+                      "[WORKER worker=Worker-%d] WAIT_BEGIN reason=idle provider=%d owner=JobProvider-%d",
+                      m_id, m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
         m_wakeEvent.wait();
+        X265_FLOW_LOG("Worker",
+                      "[WORKER worker=Worker-%d] WAIT_END reason=%s provider=%d owner=JobProvider-%d",
+                      m_id, m_pool.m_isActive ? "work-available" : "shutdown",
+                      m_curJobProvider->m_jpId, m_curJobProvider->m_jpId);
     }
 
     SLEEPBITMAP_OR(&m_pool.m_sleepBitmap, idBit);
+    X265_FLOW_LOG("Worker",
+                  "[THREAD worker=Worker-%d role=pool-worker] STOP pool=%p owner=ThreadPool",
+                  m_id, &m_pool);
 }
 
 bool JobProvider::tryWakeOne()
@@ -195,17 +232,27 @@ bool JobProvider::tryWakeOne()
     if (id < 0)
     {
         m_helpWanted = true;
+        X265_FLOW_LOG("Scheduler",
+                      "[WORKER provider=%d] WAKE_MISSED reason=no-sleeping-worker help_wanted=1 owner=JobProvider-%d",
+                      m_jpId, m_jpId);
         return false;
     }
 
     WorkerThread& worker = m_pool->m_workers[id];
     if (worker.m_curJobProvider != this) /* poaching */
     {
+        int previousProvider = worker.m_curJobProvider->m_jpId;
         sleepbitmap_t bit = (sleepbitmap_t)1 << id;
         SLEEPBITMAP_AND(&worker.m_curJobProvider->m_ownerBitmap, ~bit);
         worker.m_curJobProvider = this;
         SLEEPBITMAP_OR(&worker.m_curJobProvider->m_ownerBitmap, bit);
+        X265_FLOW_LOG("Scheduler",
+                      "[OWNERSHIP worker=Worker-%d] TRANSFER owner_before=JobProvider-%d owner_after=JobProvider-%d reason=poach",
+                      id, previousProvider, m_jpId);
     }
+    X265_FLOW_LOG("Scheduler",
+                  "[WORKER worker=Worker-%d provider=%d] WAKE reason=provider-work owner=JobProvider-%d",
+                  id, m_jpId, m_jpId);
     worker.awaken();
     return true;
 }
@@ -251,6 +298,9 @@ int ThreadPool::tryBondPeers(int maxPeers, sleepbitmap_t peerBitmap, BondedTaskG
             return bondCount;
 
         m_workers[id].m_bondMaster = &master;
+        X265_FLOW_LOG("Scheduler",
+                      "[JOB worker=Worker-%d kind=bonded-task object=%p] ASSIGN owner_before=Scheduler owner_after=Worker-%d",
+                      id, &master, id);
         m_workers[id].awaken();
         bondCount++;
     }

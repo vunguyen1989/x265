@@ -22,6 +22,7 @@
  * For more information, contact us at license @ x265.com.
  *****************************************************************************/
 #include "raw.h"
+#include "flowlog.h"
 #if _WIN32
 #include <io.h>
 #include <fcntl.h>
@@ -56,28 +57,46 @@ void RAWOutput::setParam(x265_param* param)
 int RAWOutput::writeHeaders(const x265_nal* nal, uint32_t nalcount)
 {
     uint32_t bytes = 0;
+    X265_FLOW_LOG("PassEncoder",
+                  "[OUTPUT kind=headers] WRITE_BEGIN destination=raw-output@%p nal_count=%u owner=PassEncoder",
+                  ofs, nalcount);
 
     for (uint32_t i = 0; i < nalcount; i++)
     {
+        X265_FLOW_LOG("PassEncoder",
+                      "[OUTPUT kind=headers nal_index=%u nal_type=%u] WRITE payload=%p bytes=%u destination=raw-output@%p owner=PassEncoder",
+                      i, nal->type, nal->payload, nal->sizeBytes, ofs);
         fwrite((const void*)nal->payload, 1, nal->sizeBytes, ofs);
         bytes += nal->sizeBytes;
         nal++;
     }
 
+    X265_FLOW_LOG("PassEncoder",
+                  "[OUTPUT kind=headers] WRITE_DONE bytes=%u destination=raw-output@%p owner=PassEncoder",
+                  bytes, ofs);
     return bytes;
 }
 
-int RAWOutput::writeFrame(const x265_nal* nal, uint32_t nalcount, x265_picture&)
+int RAWOutput::writeFrame(const x265_nal* nal, uint32_t nalcount, x265_picture& pic)
 {
     uint32_t bytes = 0;
+    X265_FLOW_LOG("PassEncoder",
+                  "[OUTPUT kind=frame frame=%d] WRITE_BEGIN destination=raw-output@%p nal_count=%u owner=PassEncoder",
+                  pic.poc, ofs, nalcount);
 
     for (uint32_t i = 0; i < nalcount; i++)
     {
+        X265_FLOW_LOG("PassEncoder",
+                      "[OUTPUT kind=frame frame=%d nal_index=%u nal_type=%u] WRITE payload=%p bytes=%u destination=raw-output@%p owner=PassEncoder",
+                      pic.poc, i, nal->type, nal->payload, nal->sizeBytes, ofs);
         fwrite((const void*)nal->payload, 1, nal->sizeBytes, ofs);
         bytes += nal->sizeBytes;
         nal++;
     }
 
+    X265_FLOW_LOG("PassEncoder",
+                  "[OUTPUT kind=frame frame=%d] WRITE_DONE bytes=%u destination=raw-output@%p owner=PassEncoder",
+                  pic.poc, bytes, ofs);
     return bytes;
 }
 

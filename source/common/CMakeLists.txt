@@ -266,7 +266,7 @@ add_library(common OBJECT
     yuv.cpp yuv.h
     shortyuv.cpp shortyuv.h
     picyuv.cpp picyuv.h
-    common.cpp common.h
+    common.cpp common.h flowlog.cpp flowlog.h
     param.cpp param.h
     frame.cpp frame.h
     framedata.cpp framedata.h

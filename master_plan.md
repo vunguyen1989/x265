@@ -93,10 +93,11 @@ chỉ giảm parallelism để call stack dễ đọc:
   -o step1_output_20f.h265
 ```
 
-### 1.4. Debug flow một frame — TODO
+### 1.4. Debug flow một frame — DONE
 
-Chọn profile `x265: 1 frame (simple flow)` và theo breakpoint theo từng lớp,
-không cố step qua mọi hàm ngay lần đầu:
+Dùng profile `x265: 1 frame (simple flow)` để tạo một timeline end-to-end.
+Bốn tiểu mục 1.4.1–1.4.4 là bốn góc đọc trên cùng capture, không phải bốn lần
+encode và bốn bản log trùng nhau:
 
 1. CLI/config: `main`, `CLIOptions::parse`, `AbrEncoder::AbrEncoder`,
    `PassEncoder::init`.
@@ -138,19 +139,122 @@ Vì vậy breakpoint trong `x265_encoder_encode` hoặc `Analysis::compressCTU` 
 chạy trên `main`. Trong CodeLLDB cần bật hiển thị tất cả thread và kiểm tra tên
 thread trước khi kết luận flow bị bỏ qua.
 
-#### Ba lượt debug đề xuất
+#### 1.4.1. Input boundary — DONE
 
-1. **Lượt API:** breakpoint từ `PassEncoder::threadMain` tới
-   `x265_encoder_encode`; ghi lại `picInput`, `numEncoded`, `nal`.
-2. **Lượt frame/CTU:** breakpoint `Encoder::encode`,
-   `FrameEncoder::compressFrame`, `Analysis::compressCTU`; theo dõi `poc`,
-   slice type, CTU address và mode thắng.
-3. **Lượt bitstream:** breakpoint `Entropy::encodeCTU`, `NALList::serialize`,
-   `RAWOutput::writeFrame`; ghi NAL type, `sizeBytes` và start code Annex-B.
+Mục tiêu: theo một frame từ lần `fread` raw YUV, qua ring buffer của
+`YUVInput`, bản copy trong queue của `Reader`, đến `x265_picture picInput` trên
+thread `PassEncoder`.
 
-Không thêm trace logging vào source ở Step 01. Chỉ khi breakpoint/thread view
-không đủ mới tạo một sub-step instrumentation riêng, có format log và tiêu chí
-gỡ bỏ rõ ràng.
+Breakpoint:
+
+1. `YUVInput::populateFrameQueue` trên thread `YUVRead`.
+2. `YUVInput::readPicture`; step tới sau khi các trường của `pic` được gán.
+3. `Reader::threadMain` tại `m_input[view]->readPicture(*src)` và ngay sau
+   `memcpy(dest->planes[0], ...)`.
+4. `PassEncoder::readPicture` tại lúc lấy `srcPic` từ input queue.
+5. `PassEncoder::threadMain` ngay sau `readPicture(pic_in[view], view)`.
+
+Ghi `thread`, object, POC, kích thước, bit-depth, `framesize`, stride, địa chỉ
+plane và queue index. Không dump toàn bộ plane; chỉ so sánh địa chỉ để xác định
+nơi copy dữ liệu và nơi chỉ copy metadata/con trỏ.
+
+Log runtime: `x265.log`, do chính encoder sinh khi chạy profile
+`x265: 1 frame (simple flow)`. Profile đặt `X265_FLOW_LOG` tới file này;
+logger chỉ được biên dịch trong checked/debug build.
+
+Schema chính:
+
+- Mọi dòng có `event=NNNNNN` tăng toàn cục để đọc total order giữa thread.
+- `PROCESS`, `COMPONENT`, `THREAD-CONTROL`: lifecycle từ `main/API-0`,
+  CLI parse, encoder creation, worker start request/ready, wait và cleanup.
+- `THREAD`: lifecycle của `YUVRead`, `Reader`, `PassEncoder`,
+  `FrameEncoder`.
+- `CHANNEL`: `WAIT_BEGIN/WAIT_END/PUBLISH/RECEIVE` và queue/slot tương ứng.
+- `owner_before/owner_after`: owner của bước xử lý (execution responsibility),
+  không mặc định là owner cấp phát/lifetime của vùng nhớ. Riêng
+  `NALList::takeContents` là chuyển ownership buffer thật.
+- `CTU`, `BITSTREAM`, `OUTPUT`: các stage sau input để cùng một log có thể
+  nối xuyên suốt toàn bộ frame.
+
+`x265.log` được mở với mode `w`, nên mỗi lần chạy sẽ thay log cũ. Capture
+đã chốt và phần giải thích:
+
+- Raw trace: [`step1_1.4.log`](./step1_1.4.log).
+- Flow, ownership và sequence diagrams:
+  [`step1_1.4_flow.md`](./step1_1.4_flow.md).
+
+Hoàn thành khi xác nhận được chuỗi `YUVRead -> Reader -> PassEncoder`, nơi
+ownership đổi, và frame có `320x240`, 8-bit, I420, `framesize == 115200`.
+
+#### 1.4.2. Public API và zero-latency — DONE
+
+Mục tiêu: quan sát ranh giới CLI/core và xác định input call hay flush call trả
+frame duy nhất của profile.
+
+Breakpoint: input call `api->encoder_encode` trong `PassEncoder::threadMain`,
+`x265_encoder_encode`, `Encoder::encode`, dòng sau input call, và flush call
+với `picInput == NULL`.
+
+Lập bảng:
+
+```text
+call | thread | picInput/null | input POC | numEncoded
+     | output POC | PTS | DTS | sliceType | nal count
+```
+
+Log dự kiến: `step1_1.4.2.log`.
+
+Hoàn thành khi phân biệt được input/flush loop, chứng minh hành vi zero-latency
+bằng dữ liệu thực tế và xác định call nào trả NAL cho CLI.
+
+#### 1.4.3. Frame scheduling và CTU đầu tiên — DONE
+
+Mục tiêu: theo frame từ lookahead/DPB sang thread `Frame`, rồi quan sát CTU đầu
+tiên được analysis và entropy coding.
+
+Breakpoint: `m_lookahead->addPicture`, `FrameEncoder::startCompressFrame`,
+`FrameEncoder::threadMain`, `FrameEncoder::compressFrame`,
+`FrameEncoder::processRowEncoder` với `intRow == 0`,
+`Analysis::compressCTU` với `ctu.m_cuAddr == 0`, dòng sau `compressCTU` trả về
+và `Entropy::encodeCTU` cho CTU 0.
+
+Ghi thread, frame POC, slice type, row, CTU address, QP và top-level mode thắng.
+Không đi sâu thuật toán rate-distortion ở lượt này.
+
+Log dự kiến: `step1_1.4.3.log`.
+
+Hoàn thành khi xác nhận `Encoder::encode` giao frame cho `FrameEncoder`, CTU
+analysis chạy trên thread `Frame`, và ghi được kết quả của CTU address 0.
+
+#### 1.4.4. Bitstream, NAL ownership và output — DONE
+
+Mục tiêu: nối CTU đã entropy-code với NAL Annex-B được trả qua API và ghi ra
+`step1_output_1f.h265`.
+
+Breakpoint: `Entropy::encodeCTU`, `NALList::serialize`,
+`FrameEncoder::getEncodedPicture`, `NALList::takeContents`,
+`RAWOutput::writeHeaders` và `RAWOutput::writeFrame`.
+
+Lập bảng:
+
+```text
+stage | thread | NAL type | sizeBytes | payload address
+      | owner before | owner after | output function
+```
+
+Phân biệt `x265_encoder_headers -> RAWOutput::writeHeaders` cho VPS/SPS/PPS và
+`x265_encoder_encode -> RAWOutput::writeFrame` cho access unit của frame.
+
+Log dự kiến: `step1_1.4.4.log`.
+
+Hoàn thành khi xác định nơi RBSP được đóng gói thành NAL Annex-B, giải thích
+được `NALList::takeContents`, và đối chiếu tổng `sizeBytes` với số byte được ghi.
+
+Instrumentation tạm thời đã được bật theo yêu cầu vì breakpoint/thread view
+không thể tạo một timeline hợp nhất như log Kvazaar. Nó chỉ hoạt động trong
+checked/debug build khi có `X265_FLOW_LOG`; bỏ biến môi trường thì logger
+không mở file. Gỡ `flowlog.*` và các call `X265_FLOW_LOG` sau khi bốn artifact
+`step1_1.4.x.log` đã được chốt.
 
 ### 1.5. Debug GOP, delayed output và flush — TODO
 

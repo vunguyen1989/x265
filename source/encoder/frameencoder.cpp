@@ -35,6 +35,7 @@
 #include "slicetype.h"
 #include "nal.h"
 #include "temporalfilter.h"
+#include "flowlog.h"
 
 #include <iostream>
 
@@ -284,6 +285,9 @@ bool FrameEncoder::startCompressFrame(Frame* curFrame[MAX_LAYERS])
         curFrame[layer]->m_encData->m_slice->m_mref = m_mref;
     }
     m_sliceType.set(curFrame[0]->m_lowres.sliceType);
+    X265_FLOW_LOG("PassEncoder",
+                  "[CHANNEL channel=frame-start encoder=%d frame=%d] PUBLISH object=Frame@%p event=enable owner_before=Encoder owner_after=FrameEncoder-%d",
+                  m_jpId, curFrame[0]->m_poc, curFrame[0], m_jpId);
 
     if (!m_cuGeoms)
     {
@@ -298,6 +302,9 @@ bool FrameEncoder::startCompressFrame(Frame* curFrame[MAX_LAYERS])
 void FrameEncoder::threadMain()
 {
     THREAD_NAME("Frame", m_jpId);
+    X265_FLOW_LOG("FrameEncoder",
+                  "[THREAD worker=FrameEncoder-%d role=frame-worker] START pool=%p owner=FrameEncoder",
+                  m_jpId, m_pool);
 
     if (m_pool)
     {
@@ -343,7 +350,13 @@ void FrameEncoder::threadMain()
     }
 
     m_done.trigger();     /* signal that thread is initialized */
+    X265_FLOW_LOG("FrameEncoder",
+                  "[CHANNEL channel=frame-start encoder=%d] WAIT_BEGIN reason=no-frame owner=FrameEncoder-%d",
+                  m_jpId, m_jpId);
     m_enable.wait();      /* Encoder::encode() triggers this event */
+    X265_FLOW_LOG("FrameEncoder",
+                  "[CHANNEL channel=frame-start encoder=%d frame=%d] WAIT_END reason=frame-ready object=Frame@%p owner=FrameEncoder-%d",
+                  m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1, m_frame[0], m_jpId);
 
     while (m_threadActive)
     {
@@ -360,9 +373,23 @@ void FrameEncoder::threadMain()
 
         for (int layer = 0; layer < m_param->numLayers; layer++)
             compressFrame(layer);
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CHANNEL channel=frame-done encoder=%d frame=%d] PUBLISH object=Frame@%p nals=%u owner_before=FrameEncoder-%d owner_after=Encoder",
+                      m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1, m_frame[0],
+                      m_nalList.m_numNal, m_jpId);
         m_done.trigger(); /* FrameEncoder::getEncodedPicture() blocks for this event */
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CHANNEL channel=frame-start encoder=%d] WAIT_BEGIN reason=no-frame owner=FrameEncoder-%d",
+                      m_jpId, m_jpId);
         m_enable.wait();
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CHANNEL channel=frame-start encoder=%d frame=%d] WAIT_END reason=%s object=Frame@%p owner=FrameEncoder-%d",
+                      m_jpId, m_frame[0] ? m_frame[0]->m_poc : -1,
+                      m_threadActive ? "frame-ready" : "shutdown", m_frame[0], m_jpId);
     }
+    X265_FLOW_LOG("FrameEncoder",
+                  "[THREAD worker=FrameEncoder-%d role=frame-worker] STOP owner=FrameEncoder",
+                  m_jpId);
 }
 
 void FrameEncoder::WeightAnalysis::processTasks(int /* workerThreadId */)
@@ -446,6 +473,9 @@ void FrameEncoder::writeTrailingSEIMessages(int layer)
 void FrameEncoder::compressFrame(int layer)
 {
     ProfileScopeEvent(frameThread);
+    X265_FLOW_LOG("FrameEncoder",
+                  "[FRAME encoder=%d frame=%d layer=%d] BEGIN object=Frame@%p stage=compress owner=FrameEncoder-%d",
+                  m_jpId, m_frame[layer]->m_poc, layer, m_frame[layer], m_jpId);
 
     m_startCompressTime[layer] = x265_mdate();
     m_totalActiveWorkerCount = 0;
@@ -1287,6 +1317,11 @@ void FrameEncoder::compressFrame(int layer)
     }
 
     m_endCompressTime[layer] = x265_mdate();
+    X265_FLOW_LOG("FrameEncoder",
+                  "[FRAME encoder=%d frame=%d layer=%d] DONE object=Frame@%p stage=compress nals=%u access_unit_bits=%llu elapsed_us=%lld owner=FrameEncoder-%d",
+                  m_jpId, m_frame[layer]->m_poc, layer, m_frame[layer],
+                  m_nalList.m_numNal, (unsigned long long)m_accessUnitBits[layer],
+                  (long long)(m_endCompressTime[layer] - m_startCompressTime[layer]), m_jpId);
 
     /* Decrement referenced frame reference counts, allow them to be recycled */
     for (int l = 0; l < numPredDir; l++)
@@ -1469,7 +1504,13 @@ void FrameEncoder::encodeSlice(uint32_t sliceAddr, int layer)
         }
 
         // final coding (bitstream generation) for this CU
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=final-bitstream object=CUData@%p step_owner=FrameEncoder-%d",
+                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
         m_entropyCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=final-bitstream step_owner=FrameEncoder-%d",
+                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, m_jpId);
 
         if (m_param->bEnableWavefront)
         {
@@ -1723,7 +1764,15 @@ void FrameEncoder::processRowEncoder(int intRow, ThreadLocalData& tld, int layer
             ctu->m_vbvAffected = true;
 
         // Does all the CU analysis, returns best top level mode decision
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=analysis object=CUData@%p owner=FrameEncoder-%d",
+                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
         Mode& best = tld.analysis.compressCTU(*ctu, *m_frame[layer], m_cuGeoms[m_ctuGeomMap[cuAddr]], rowCoder);
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=analysis pred_mode=%u depth=%u rd_cost=%llu bits=%u owner=FrameEncoder-%d",
+                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col,
+                      (unsigned)best.cu.m_predMode[0], (unsigned)best.cu.m_cuDepth[0],
+                      (unsigned long long)best.rdCost, best.totalBits, m_jpId);
 
         /* startPoint > encodeOrder is true when the start point changes for
         a new GOP but few frames from the previous GOP is still incomplete.
@@ -1737,7 +1786,13 @@ void FrameEncoder::processRowEncoder(int intRow, ThreadLocalData& tld, int layer
 
         /* advance top-level row coder to include the context of this CTU.
          * if SAO is disabled, rowCoder writes the final CTU bitstream */
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] BEGIN stage=row-context object=CUData@%p owner=FrameEncoder-%d",
+                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, ctu, m_jpId);
         rowCoder.encodeCTU(*ctu, m_cuGeoms[m_ctuGeomMap[cuAddr]]);
+        X265_FLOW_LOG("FrameEncoder",
+                      "[CTU encoder=%d frame=%d layer=%d ctu=%u row=%u col=%u] DONE stage=row-context owner=FrameEncoder-%d",
+                      m_jpId, m_frame[layer]->m_poc, layer, cuAddr, row, col, m_jpId);
 
         if (m_param->bEnableWavefront && col == 1)
             // Save CABAC state for next row
@@ -2585,7 +2640,13 @@ Frame** FrameEncoder::getEncodedPicture(NALList& output)
     if (m_frame[0] && (m_param->numLayers <= 1 || (MAX_LAYERS > 1 && m_frame[1])))
     {
         /* block here until worker thread completes */
+        X265_FLOW_LOG("PassEncoder",
+                      "[CHANNEL channel=frame-done encoder=%d frame=%d] WAIT_BEGIN reason=frame-in-progress object=Frame@%p owner=Encoder",
+                      m_jpId, m_frame[0]->m_poc, m_frame[0]);
         m_done.wait();
+        X265_FLOW_LOG("PassEncoder",
+                      "[CHANNEL channel=frame-done encoder=%d frame=%d] WAIT_END reason=frame-complete object=Frame@%p owner=Encoder",
+                      m_jpId, m_frame[0]->m_poc, m_frame[0]);
 
         for (int i = 0; i < m_param->numLayers; i++)
         {
@@ -2594,6 +2655,10 @@ Frame** FrameEncoder::getEncodedPicture(NALList& output)
             m_prevOutputTime[i] = x265_mdate();
         }
         output.takeContents(m_nalList);
+        X265_FLOW_LOG("PassEncoder",
+                      "[CHANNEL channel=nal-output encoder=%d frame=%d] RECEIVE nal_count=%u buffer=%p bytes=%u owner_before=FrameEncoder-%d owner_after=Encoder",
+                      m_jpId, m_retFrameBuffer[0]->m_poc, output.m_numNal,
+                      output.m_buffer, output.m_occupancy, m_jpId);
         return m_retFrameBuffer;
     }
 

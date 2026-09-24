@@ -34,4 +34,7 @@
 # Build directory
 build/
 
+# Temporary Step 1 structural trace
+/x265.log
+
 /.*/

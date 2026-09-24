@@ -37,6 +37,7 @@
 #include "slicetype.h"
 #include "frameencoder.h"
 #include "ratecontrol.h"
+#include "flowlog.h"
 #include "dpb.h"
 #include "nal.h"
 #include "threadedme.h"
@@ -517,8 +518,14 @@ void Encoder::create()
 
     for (int i = 0; i < m_param->frameNumThreads; i++)
     {
+        X265_FLOW_LOG("API-0",
+                      "[THREAD-CONTROL worker=FrameEncoder-%d action=START_REQUEST owner=API-0]",
+                      i);
         m_frameEncoder[i]->start();
         m_frameEncoder[i]->m_done.wait(); /* wait for thread to initialize */
+        X265_FLOW_LOG("API-0",
+                      "[THREAD-CONTROL worker=FrameEncoder-%d action=START_READY owner=API-0]",
+                      i);
     }
 
     if (m_param->bEmitHRDSEI)
@@ -1478,6 +1485,9 @@ bool Encoder::isFilterThisframe(uint8_t sliceTypeConfig, int curSliceType)
  *         negative on malloc error or abort */
 int Encoder::encode(const x265_picture* pic_in, x265_picture* pic_out)
 {
+    X265_FLOW_LOG("PassEncoder",
+                  "[ENCODER stage=encode] BEGIN mode=%s input=x265-picture@%p input_poc=%d owner=Encoder delayed=%d",
+                  pic_in ? "submit" : "flush", pic_in, pic_in ? pic_in->poc : -1, m_numDelayedPic);
 #if CHECKED_BUILD || _DEBUG
     if (g_checkFailures)
     {
@@ -1972,6 +1982,9 @@ int Encoder::encode(const x265_picture* pic_in, x265_picture* pic_out)
             m_lookahead->m_origPicBuf->addPicture(inFrame[0]);;
         }
 
+        X265_FLOW_LOG("PassEncoder",
+                      "[CHANNEL channel=lookahead-input frame=%d] PUBLISH object=Frame@%p source=Encoder destination=Lookahead owner_before=Encoder owner_after=Lookahead",
+                      inFrame[0]->m_poc, inFrame[0]);
         m_lookahead->addPicture(*inFrame[0], sliceType);
 
 #if ENABLE_ALPHA
@@ -2008,9 +2021,17 @@ int Encoder::encode(const x265_picture* pic_in, x265_picture* pic_out)
          * encoding the frame.  This is how back-pressure through the API is
          * accomplished when the encoder is full */
         if (!m_bZeroLatency || pass)
+        {
+            X265_FLOW_LOG("PassEncoder",
+                          "[CHANNEL channel=frame-done encoder=%d] POLL pass=%d owner=Encoder",
+                          curEncoder->m_jpId, pass);
             outFrames = curEncoder->getEncodedPicture(m_nalList);
+        }
         if (outFrames)
         {
+            X265_FLOW_LOG("PassEncoder",
+                          "[CHANNEL channel=frame-done encoder=%d frame=%d] RECEIVE object=Frame@%p nals=%u owner_before=FrameEncoder owner_after=Encoder",
+                          curEncoder->m_jpId, outFrames[0]->m_poc, outFrames[0], m_nalList.m_numNal);
             for (int sLayer = 0; sLayer < m_param->numLayers; sLayer++)
             {
                 Frame* outFrame = *(outFrames + sLayer);
@@ -2577,6 +2598,9 @@ int Encoder::encode(const x265_picture* pic_in, x265_picture* pic_out)
             }
 
             /* Allow FrameEncoder::compressFrame() to start in the frame encoder thread */
+            X265_FLOW_LOG("PassEncoder",
+                          "[CHANNEL channel=frame-start encoder=%d frame=%d] HANDOFF object=Frame@%p source=Encoder destination=FrameEncoder-%d owner_before=Encoder owner_after=FrameEncoder",
+                          curEncoder->m_jpId, frameEnc[0]->m_poc, frameEnc[0], curEncoder->m_jpId);
             if (!curEncoder->startCompressFrame(frameEnc))
                 m_aborted = true;
         }
@@ -2585,6 +2609,9 @@ int Encoder::encode(const x265_picture* pic_in, x265_picture* pic_out)
     }
     while (m_bZeroLatency && ++pass < 2);
 
+    X265_FLOW_LOG("PassEncoder",
+                  "[ENCODER stage=encode] END mode=%s returned=%d delayed=%d nal_count=%u owner=Encoder",
+                  pic_in ? "submit" : "flush", ret, m_numDelayedPic, m_nalList.m_numNal);
     return ret;
 }
 
