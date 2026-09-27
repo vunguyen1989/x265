@@ -38,3 +38,8 @@ build/
 /x265.log
 
 /.*/
+my-x265
+x264
+
+# Local work logs and artifacts
+*_worklog/
