@@ -1,6 +1,6 @@
 <h1 align="center">Master Plan — Issue #970: Frame packing arrangement SEI</h1>
 
-<p align="center">Tiến độ: 11/43</p>
+<p align="center">Tiến độ: 21/43</p>
 
 ## Yêu cầu
 
@@ -236,9 +236,9 @@
   | Tiêu chí đạt | Không ghi đè ngoài ý muốn; lần chạy lại dùng tên mới hoặc chủ động `-y`. |
   | Kết quả ✅ | Đạt; [command](./970_worklog/step1/1.3.1_sbs_commands.json) dùng `-n`; [chính sách](./970_worklog/step1/1.3.2_sbs_validation.json) đã ghi rõ. |
 
-### 1.4. Experiment 1 — x264 control và frame packing 3 — TODO
+### 1.4. Experiment 1 — x264 control và frame packing 3 — DONE
 
-- [ ] **1.4.1.** Giữ cùng input và toàn bộ tham số encode; chỉ ca feature thêm option.
+- [x] **1.4.1.** Giữ cùng input và toàn bộ tham số encode; chỉ ca feature thêm option.
   Dùng một thread, không B-frame, GOP 24 frame để dễ đối chiếu vị trí SEI.
 
   **Validate output — 1.4.1**
@@ -248,9 +248,9 @@
   | Output | Cặp command encode thực tế. |
   | Cách kiểm tra | So sánh input và tham số hai ca. |
   | Tiêu chí đạt | Cùng fixture, một thread, không B-frame, GOP 24; chỉ khác frame packing và đường dẫn output/log. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đạt; [cấu hình và command](./970_worklog/step1/1.4.1_encode_config.json) xác nhận cùng fixture/hash và tham số, chỉ thêm `--frame-packing 3` ở ca feature; hash fixture không đổi sau encode. |
 
-- [ ] **1.4.2.** Encode control và ca feature:
+- [x] **1.4.2.** Encode control và ca feature:
 
   ```shell
   ./build/x264-debug/x264 \
@@ -284,9 +284,9 @@
   | Output | Hai bitstream H.264 và log encode. |
   | Cách kiểm tra | Kiểm tra output không rỗng, exit code và số frame trong log. |
   | Tiêu chí đạt | Cả hai ca encode thành công đủ 720 frame; kiểm tra SEI/pixel riêng ở 1.5. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đạt; mỗi ca encode 720 frame, exit code 0. [Control](./970_worklog/step1/1.4.2_no-frame-packing.h264): 3,113,996 byte; [feature](./970_worklog/step1/1.4.2_frame-packing-3.h264): 3,114,462 byte. Chưa kết luận FPA/pixel trước bước 1.5. |
 
-- [ ] **1.4.3.** Ghi exit code và kiểm tra log từng command trước khi phân tích output.
+- [x] **1.4.3.** Ghi exit code và kiểm tra log từng command trước khi phân tích output.
 
   **Validate output — 1.4.3**
 
@@ -295,13 +295,13 @@
   | Output | Bản ghi command, exit code và rà log từng ca. |
   | Cách kiểm tra | Đối chiếu bản ghi với hai lần encode. |
   | Tiêu chí đạt | Đủ exit code/log cho cả hai ca; lỗi nếu có phải xử lý trước khi phân tích. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đạt; [command/exit code](./970_worklog/step1/1.4.3_encode_commands.json), [rà log](./970_worklog/step1/1.4.3_log_validation.json): không có warning/error; [log control](./970_worklog/step1/1.4.2_no-frame-packing.log), [log feature](./970_worklog/step1/1.4.2_frame-packing-3.log). |
 
-### 1.5. Chứng minh khác biệt metadata và kiểm tra ảnh decode — TODO
+### 1.5. Chứng minh khác biệt metadata và kiểm tra ảnh decode — DONE
 
 #### 1.5.1. Kiểm tra metadata
 
-- [ ] **1.5.1.1.** Parse cả hai elementary stream:
+- [x] **1.5.1.1.** Parse cả hai elementary stream:
 
   ```shell
   ffmpeg -hide_banner -bsfs | rg trace_headers
@@ -323,17 +323,17 @@
   | Output | Hai log parser đầy đủ. |
   | Cách kiểm tra | Chạy parser cho cả hai stream và lưu exit code. |
   | Tiêu chí đạt | Parser xử lý thành công cả hai stream; giữ log đầy đủ. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Công cụ đọc cả hai file thành công, exit code 0; đã lưu log đầy đủ. [Bằng chứng](./970_worklog/step1/1.5.1.1_commands.json). |
 
-- [ ] **1.5.1.2.** Lập bảng bằng kết quả parser, chưa đi vào source encoder:
+- [x] **1.5.1.2.** Lập bảng bằng kết quả parser, chưa đi vào source encoder:
 
   | Quan sát | Control | Có `--frame-packing 3` |
   | --- | --- | --- |
-  | FPA SEI payload type 45 | Kỳ vọng không có | Kỳ vọng có |
-  | Arrangement type | Không áp dụng | Kỳ vọng 3 |
-  | Các field còn lại | Không áp dụng | Ghi giá trị parser đọc được |
-  | Số message, frame liên quan | Ghi thực tế | Ghi thực tế |
-  | Vị trí SEI so với slice NAL | Không áp dụng | Ghi thực tế |
+  | FPA SEI payload type 45 | Không có | Có 30 message, trong NAL type 6 |
+  | Arrangement type | Không áp dụng | 3 |
+  | Các field còn lại | Không áp dụng | id=0, cancel=0, content_interpretation=1, repetition_period=1; [đầy đủ field](./970_worklog/step1/1.5.1.2_fpa_comparison.md) |
+  | Số message, frame liên quan | 0 | 30; frame 0, 24, …, 696 (đếm từ 0) |
+  | Vị trí SEI so với slice NAL | Không áp dụng | Trước slice IDR trong cùng frame |
 
   **Validate output — 1.5.1.2**
 
@@ -342,9 +342,9 @@
   | Output | Bảng đối chiếu FPA của control và feature. |
   | Cách kiểm tra | Đối chiếu từng ô với log parser. |
   | Tiêu chí đạt | Control không FPA, feature payload type 45/type 3; các field, số message và vị trí ghi từ quan sát thực tế. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | File control không có FPA; file bật option có 30 message payload type 45, arrangement type 3; mọi field đã được ghi vào bảng. [Bằng chứng](./970_worklog/step1/1.5.1.2_fpa_comparison.md). |
 
-- [ ] **1.5.1.3.** Phân biệt payload type 45 với NAL type chứa SEI. Chỉ grep hex `2d` không đủ
+- [x] **1.5.1.3.** Phân biệt payload type 45 với NAL type chứa SEI. Chỉ grep hex `2d` không đủ
   để chứng minh có FPA. Nếu `trace_headers` không đọc được FPA, dùng parser
   hỗ trợ trước khi kết luận vắng mặt; lưu cả log đầy đủ và exit code.
 
@@ -355,9 +355,9 @@
   | Output | Bằng chứng parser hỗ trợ FPA và cách nhận diện payload. |
   | Cách kiểm tra | Kiểm tra parser đọc được field FPA ở ca feature; phân biệt payload type/NAL type. |
   | Tiêu chí đạt | Không dùng grep hex làm bằng chứng; chỉ kết luận vắng mặt khi parser hỗ trợ FPA và parse thành công. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | trace_headers đọc được đầy đủ field FPA. NAL type 6 chứa SEI; payload type 45 chỉ loại message FPA, không phải NAL type. [Bằng chứng](./970_worklog/step1/1.5.1.3_parser_support.md). |
 
-- [ ] **1.5.1.4.** Quan sát lịch lặp so với keyframe, chưa lấy điều kiện trong code làm kết quả.
+- [x] **1.5.1.4.** Quan sát lịch lặp so với keyframe, chưa lấy điều kiện trong code làm kết quả.
 
   **Validate output — 1.5.1.4**
 
@@ -366,11 +366,11 @@
   | Output | Bảng lịch phát FPA theo frame/keyframe. |
   | Cách kiểm tra | Đối chiếu message với frame và slice NAL trong output. |
   | Tiêu chí đạt | Có lịch lặp quan sát thực tế; không suy ra từ code encoder. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | 30 message ở frame 0, 24, 48, …, 696 (đếm từ 0), trùng 30 keyframe và nằm trước slice IDR. Field repetition_period = 1; đây không phải khoảng cách 24 frame quan sát giữa các message. [Bằng chứng](./970_worklog/step1/1.5.1.4_fpa_schedule.csv). |
 
 #### 1.5.2. Kiểm tra ảnh decode
 
-- [ ] **1.5.2.1.** Kiểm tra decode và số frame cho từng file:
+- [x] **1.5.2.1.** Kiểm tra decode và số frame cho từng file:
 
   ```shell
   for name in no-frame-packing frame-packing-3; do
@@ -393,9 +393,9 @@
   | Output | Hai file framemd5, metadata decoded và exit code. |
   | Cách kiểm tra | Chạy decode và ffprobe đếm frame cho từng ca. |
   | Tiêu chí đạt | Decode/ffprobe thành công, artifact đủ cho cả hai stream. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Hai file giải mã thành công, không ghi lỗi; ffprobe đếm đủ 720 frame mỗi file, 640×360 yuv420p. [Bằng chứng](./970_worklog/step1/1.5.2.1_commands.json). |
 
-- [ ] **1.5.2.2.** Xác nhận kỳ vọng hai ca decode đủ 720 frame 640x360 và checksum pixel từng
+- [x] **1.5.2.2.** Xác nhận kỳ vọng hai ca decode đủ 720 frame 640x360 và checksum pixel từng
   frame trùng nhau. Nếu khác, ghi nhận và điều tra thay vì khẳng định chỉ đổi metadata.
 
   **Validate output — 1.5.2.2**
@@ -405,9 +405,9 @@
   | Output | Kết quả so checksum và số frame. |
   | Cách kiểm tra | Đối chiếu pixel checksum tương ứng và metadata decoded. |
   | Tiêu chí đạt | Mỗi ca 720 frame 640×360, checksum pixel trùng; chênh lệch phải được điều tra. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Checksum pixel trùng 720/720 frame, không có frame khác; diff toàn bộ hai file framemd5 trả 0. [Bằng chứng](./970_worklog/step1/1.5.2.2_pixel_comparison.json). |
 
-- [ ] **1.5.2.3.** Phân biệt phạm vi so sánh: không yêu cầu toàn file H.264 chỉ khác một SEI;
+- [x] **1.5.2.3.** Phân biệt phạm vi so sánh: không yêu cầu toàn file H.264 chỉ khác một SEI;
   metadata mô tả encoder/options cũng có thể khác. Không so checksum ảnh lossy
   output với input gốc.
 
@@ -418,7 +418,7 @@
   | Output | Ghi chú phạm vi kết luận pixel/bitstream. |
   | Cách kiểm tra | Rà cách so sánh và diễn giải kết quả. |
   | Tiêu chí đạt | Chỉ so pixel hai ca x264; không so lossy output với input, không yêu cầu bitstream chỉ khác một SEI. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đã ghi rõ: ảnh giải mã hai ca giống nhau; không kết luận toàn bitstream chỉ khác SEI, không so với input gốc và không chứng minh chiều sâu stereo thật. [Bằng chứng](./970_worklog/step1/1.5.2.3_comparison_scope.md). |
 
 ### 1.6. Experiment 2 — Cùng SBS input, so sánh với x265 — TODO
 
