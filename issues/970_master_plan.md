@@ -1,16 +1,16 @@
 <h1 align="center">Master Plan — Issue #970: Frame packing arrangement SEI</h1>
 
-<p align="center">Tiến độ: 21/43</p>
+<p align="center">Tiến độ: 37/41</p>
 
 ## Yêu cầu
 
 - Bộ tài liệu task: [yêu cầu #970](./970.md) → [master plan](./970_master_plan.md) → [worklog](./970_worklog/). Mục tiêu: bổ sung báo hiệu 3D trong HEVC bằng SEI `frame_packing_arrangement` để thiết bị hỗ trợ nhận diện cách sắp xếp view từ elementary stream.
-- Thêm CLI `--frame-packing` và param/API tương ứng như x264: type 3 = side-by-side, type 4 = top-bottom, type 5 = frame alternation.
+- Triển khai CLI `--frame-packing` và param/API cho **type 3 = side-by-side trước**. Hoàn tất type 3 và các kiểm chứng tương ứng rồi mới lập kế hoạch cho type 4 = top-bottom, type 5 = frame alternation và các case mở rộng khác trong yêu cầu gốc.
 - Ghi SEI trước mỗi keyframe theo yêu cầu gốc; đối chiếu syntax và semantics HEVC trước khi chốt triển khai.
 - Nếu chưa triển khai đầy đủ param, phương án tối thiểu được issue đề xuất là cho phép ghi qua generic user-SEI payload API, kèm tài liệu để front-end tích hợp.
 - Kiểm chứng bằng bitstream/parser và nguồn stereo thật trên thiết bị hỗ trợ HEVC/FPA; option chỉ báo hiệu cách bố trí view, không chuyển video 2D thành stereo thật.
 
-## Step 01 — Thí nghiệm black-box SBS với x264 và đối chiếu x265
+## Step 01 — Thí nghiệm black-box SBS với x264 và đối chiếu x265 — DONE
 
 ### 1.1. Chốt input, phạm vi và artifact — DONE
 
@@ -185,7 +185,7 @@
 
 - [x] **1.3.2.** Kiểm tra kỳ vọng: 640x360, yuv420p, 24 fps, 720 frame. Y4M chứa metadata
   đầu vào nên không cần truyền lại resolution/fps cho CLI encoder. File raw
-  này khoảng 249 MB; giữ một bản dùng chung cho các ca.
+  này khoảng 249 MB; giữ một bản dùng chung cho các trường hợp.
 
   **Validate output — 1.3.2**
 
@@ -238,7 +238,7 @@
 
 ### 1.4. Experiment 1 — x264 control và frame packing 3 — DONE
 
-- [x] **1.4.1.** Giữ cùng input và toàn bộ tham số encode; chỉ ca feature thêm option.
+- [x] **1.4.1.** Giữ cùng input và toàn bộ tham số encode; chỉ trường hợp feature thêm option.
   Dùng một thread, không B-frame, GOP 24 frame để dễ đối chiếu vị trí SEI.
 
   **Validate output — 1.4.1**
@@ -246,11 +246,11 @@
   | Nội dung | Chi tiết |
   | --- | --- |
   | Output | Cặp command encode thực tế. |
-  | Cách kiểm tra | So sánh input và tham số hai ca. |
+  | Cách kiểm tra | So sánh input và tham số hai trường hợp. |
   | Tiêu chí đạt | Cùng fixture, một thread, không B-frame, GOP 24; chỉ khác frame packing và đường dẫn output/log. |
-  | Kết quả ✅ | Đạt; [cấu hình và command](./970_worklog/step1/1.4.1_encode_config.json) xác nhận cùng fixture/hash và tham số, chỉ thêm `--frame-packing 3` ở ca feature; hash fixture không đổi sau encode. |
+  | Kết quả ✅ | Đạt; [cấu hình và command](./970_worklog/step1/1.4.1_encode_config.json) xác nhận cùng fixture/hash và tham số, chỉ thêm `--frame-packing 3` ở trường hợp feature; hash fixture không đổi sau encode. |
 
-- [x] **1.4.2.** Encode control và ca feature:
+- [x] **1.4.2.** Encode control và trường hợp feature:
 
   ```shell
   ./build/x264-debug/x264 \
@@ -283,8 +283,8 @@
   | --- | --- |
   | Output | Hai bitstream H.264 và log encode. |
   | Cách kiểm tra | Kiểm tra output không rỗng, exit code và số frame trong log. |
-  | Tiêu chí đạt | Cả hai ca encode thành công đủ 720 frame; kiểm tra SEI/pixel riêng ở 1.5. |
-  | Kết quả ✅ | Đạt; mỗi ca encode 720 frame, exit code 0. [Control](./970_worklog/step1/1.4.2_no-frame-packing.h264): 3,113,996 byte; [feature](./970_worklog/step1/1.4.2_frame-packing-3.h264): 3,114,462 byte. Chưa kết luận FPA/pixel trước bước 1.5. |
+  | Tiêu chí đạt | Cả hai trường hợp encode thành công đủ 720 frame; kiểm tra SEI/pixel riêng ở 1.5. |
+  | Kết quả ✅ | Đạt; mỗi trường hợp encode 720 frame, exit code 0. [Control](./970_worklog/step1/1.4.2_no-frame-packing.h264): 3,113,996 byte; [feature](./970_worklog/step1/1.4.2_frame-packing-3.h264): 3,114,462 byte. Chưa kết luận FPA/pixel trước bước 1.5. |
 
 - [x] **1.4.3.** Ghi exit code và kiểm tra log từng command trước khi phân tích output.
 
@@ -292,9 +292,9 @@
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Bản ghi command, exit code và rà log từng ca. |
+  | Output | Bản ghi command, exit code và rà log từng trường hợp. |
   | Cách kiểm tra | Đối chiếu bản ghi với hai lần encode. |
-  | Tiêu chí đạt | Đủ exit code/log cho cả hai ca; lỗi nếu có phải xử lý trước khi phân tích. |
+  | Tiêu chí đạt | Đủ exit code/log cho cả hai trường hợp; lỗi nếu có phải xử lý trước khi phân tích. |
   | Kết quả ✅ | Đạt; [command/exit code](./970_worklog/step1/1.4.3_encode_commands.json), [rà log](./970_worklog/step1/1.4.3_log_validation.json): không có warning/error; [log control](./970_worklog/step1/1.4.2_no-frame-packing.log), [log feature](./970_worklog/step1/1.4.2_frame-packing-3.log). |
 
 ### 1.5. Chứng minh khác biệt metadata và kiểm tra ảnh decode — DONE
@@ -353,7 +353,7 @@
   | Nội dung | Chi tiết |
   | --- | --- |
   | Output | Bằng chứng parser hỗ trợ FPA và cách nhận diện payload. |
-  | Cách kiểm tra | Kiểm tra parser đọc được field FPA ở ca feature; phân biệt payload type/NAL type. |
+  | Cách kiểm tra | Kiểm tra parser đọc được field FPA ở trường hợp feature; phân biệt payload type/NAL type. |
   | Tiêu chí đạt | Không dùng grep hex làm bằng chứng; chỉ kết luận vắng mặt khi parser hỗ trợ FPA và parse thành công. |
   | Kết quả ✅ | trace_headers đọc được đầy đủ field FPA. NAL type 6 chứa SEI; payload type 45 chỉ loại message FPA, không phải NAL type. [Bằng chứng](./970_worklog/step1/1.5.1.3_parser_support.md). |
 
@@ -391,11 +391,11 @@
   | Nội dung | Chi tiết |
   | --- | --- |
   | Output | Hai file framemd5, metadata decoded và exit code. |
-  | Cách kiểm tra | Chạy decode và ffprobe đếm frame cho từng ca. |
+  | Cách kiểm tra | Chạy decode và ffprobe đếm frame cho từng trường hợp. |
   | Tiêu chí đạt | Decode/ffprobe thành công, artifact đủ cho cả hai stream. |
   | Kết quả ✅ | Hai file giải mã thành công, không ghi lỗi; ffprobe đếm đủ 720 frame mỗi file, 640×360 yuv420p. [Bằng chứng](./970_worklog/step1/1.5.2.1_commands.json). |
 
-- [x] **1.5.2.2.** Xác nhận kỳ vọng hai ca decode đủ 720 frame 640x360 và checksum pixel từng
+- [x] **1.5.2.2.** Xác nhận kỳ vọng hai trường hợp decode đủ 720 frame 640x360 và checksum pixel từng
   frame trùng nhau. Nếu khác, ghi nhận và điều tra thay vì khẳng định chỉ đổi metadata.
 
   **Validate output — 1.5.2.2**
@@ -404,7 +404,7 @@
   | --- | --- |
   | Output | Kết quả so checksum và số frame. |
   | Cách kiểm tra | Đối chiếu pixel checksum tương ứng và metadata decoded. |
-  | Tiêu chí đạt | Mỗi ca 720 frame 640×360, checksum pixel trùng; chênh lệch phải được điều tra. |
+  | Tiêu chí đạt | Mỗi trường hợp 720 frame 640×360, checksum pixel trùng; chênh lệch phải được điều tra. |
   | Kết quả ✅ | Checksum pixel trùng 720/720 frame, không có frame khác; diff toàn bộ hai file framemd5 trả 0. [Bằng chứng](./970_worklog/step1/1.5.2.2_pixel_comparison.json). |
 
 - [x] **1.5.2.3.** Phân biệt phạm vi so sánh: không yêu cầu toàn file H.264 chỉ khác một SEI;
@@ -417,12 +417,12 @@
   | --- | --- |
   | Output | Ghi chú phạm vi kết luận pixel/bitstream. |
   | Cách kiểm tra | Rà cách so sánh và diễn giải kết quả. |
-  | Tiêu chí đạt | Chỉ so pixel hai ca x264; không so lossy output với input, không yêu cầu bitstream chỉ khác một SEI. |
-  | Kết quả ✅ | Đã ghi rõ: ảnh giải mã hai ca giống nhau; không kết luận toàn bitstream chỉ khác SEI, không so với input gốc và không chứng minh chiều sâu stereo thật. [Bằng chứng](./970_worklog/step1/1.5.2.3_comparison_scope.md). |
+  | Tiêu chí đạt | Chỉ so pixel hai trường hợp x264; không so lossy output với input, không yêu cầu bitstream chỉ khác một SEI. |
+  | Kết quả ✅ | Đã ghi rõ: ảnh giải mã hai trường hợp giống nhau; không kết luận toàn bitstream chỉ khác SEI, không so với input gốc và không chứng minh chiều sâu stereo thật. [Bằng chứng](./970_worklog/step1/1.5.2.3_comparison_scope.md). |
 
-### 1.6. Experiment 2 — Cùng SBS input, so sánh với x265 — TODO
+### 1.6. Experiment 2 — Cùng SBS input, so sánh với x265 — DONE
 
-- [ ] **1.6.1.** Chỉ thực hiện sau khi experiment 1 đã có bằng chứng SEI rõ ràng.
+- [x] **1.6.1.** Chỉ thực hiện sau khi experiment 1 đã có bằng chứng SEI rõ ràng.
   Dùng CLI x265 local để tránh nhầm với thư viện của FFmpeg hệ thống:
 
   ```shell
@@ -445,9 +445,9 @@
   | Output | Binary/version x265 local, bitstream và log build/encode. |
   | Cách kiểm tra | Xác nhận bằng chứng FPA x264 đã có; kiểm tra binary, input, exit code và log encode. |
   | Tiêu chí đạt | Build/encode thành công 720 frame từ cùng fixture bằng CLI local. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Build/encode exit code 0; x265 local `4.3+55-7429f136c` encode đủ 720 frame từ fixture có hash khớp thí nghiệm x264. Cảnh báo tắt lookahead-slices do `--pools none`, không cản trở encode. [Commands](./970_worklog/step1/1.6.1_commands.json), [identity](./970_worklog/step1/1.6.1_identity.json), [version](./970_worklog/step1/1.6.1_x265_version.txt), [build log](./970_worklog/step1/1.6.1_x265_build.log), [encode log](./970_worklog/step1/1.6.1_x265-sbs.log). |
 
-- [ ] **1.6.2.** Parse bitstream và kiểm tra decode:
+- [x] **1.6.2.** Parse bitstream và kiểm tra decode:
 
   ```shell
   ffmpeg -nostdin -hide_banner -i issues/970_worklog/step1/1.6.1_x265-sbs.h265 \
@@ -468,9 +468,9 @@
   | Output | Log parser HEVC, decode và metadata decoded. |
   | Cách kiểm tra | Parse bằng công cụ hỗ trợ FPA HEVC; decode và count frame. |
   | Tiêu chí đạt | Parser/decode thành công; đủ 720 frame 640×360, có bằng chứng về sự có mặt/vắng mặt FPA. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Parser/decode exit code 0; HEVC/yuv420p/640×360, đủ 720 frame; baseline không có FPA. Mẫu HEVC riêng có chèn FPA/type 3 xác nhận parser đọc được; không phải output encoder. [Validation](./970_worklog/step1/1.6.2_validation.json), [parser support](./970_worklog/step1/1.6.2_parser_support.md), [commands](./970_worklog/step1/1.6.2_commands.json), [trace](./970_worklog/step1/1.6.2_x265-sbs_headers.log), [metadata](./970_worklog/step1/1.6.2_x265-sbs_decoded.json). |
 
-- [ ] **1.6.3.** Lưu thêm command `./build/debug/x265 --frame-packing 3` cùng stderr và exit
+- [x] **1.6.3.** Lưu thêm command `./build/debug/x265 --frame-packing 3` cùng stderr và exit
   code để xác nhận CLI hiện có nhận option không. Đây là phép thử option riêng,
   không thay cho việc encode và đọc bitstream.
 
@@ -481,9 +481,9 @@
   | Output | Command thử option, stderr và exit code. |
   | Cách kiểm tra | Đọc thông báo CLI và xác định nguyên nhân kết thúc. |
   | Tiêu chí đạt | Xác nhận rõ CLI nhận/từ chối option; không chỉ dựa vào exit code khác 0. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | CLI từ chối `--frame-packing 3`: stderr ghi `unrecognized option`, exit code 1. Đây là kết quả phép thử option, không phải lỗi encode baseline. [Command/exit code](./970_worklog/step1/1.6.3_commands.json), [stderr](./970_worklog/step1/1.6.3_option.stderr). |
 
-- [ ] **1.6.4.** So sánh sự có mặt và nội dung FPA giữa x264 type 3 và x265 baseline.
+- [x] **1.6.4.** So sánh sự có mặt và nội dung FPA giữa x264 type 3 và x265 baseline.
   Không so byte stream hoặc checksum pixel giữa H.264 và HEVC để kết luận lỗi:
   hai encoder/codec khác nhau có thể tạo ảnh tái dựng khác nhau tại cùng QP.
   Kết luận chỉ trong phạm vi binary và command đã kiểm tra.
@@ -495,13 +495,13 @@
   | Output | So sánh signalling x264 type 3 với x265 baseline. |
   | Cách kiểm tra | Đối chiếu log parser và phiên bản/command đã thử. |
   | Tiêu chí đạt | Kết luận có căn cứ FPA; không dùng chênh lệch byte/pixel giữa hai codec để kết luận lỗi. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | x264 type 3 có 30 FPA; x265 baseline không có FPA và CLI local không nhận option. Kết luận giới hạn ở binary/command đã thử; không so byte/pixel giữa hai codec. [Bảng đối chiếu](./970_worklog/step1/1.6.4_comparison.md). |
 
-### 1.7. Ghi kết quả và chốt requirement — TODO
+### 1.7. Ghi kết quả và chốt requirement — DONE
 
-#### 1.7.1. Tạo `issues/970_worklog/step1/1.7.1.1_notes.md`
+#### 1.7.1. Tạo `issues/970_worklog/step1/1.7.1.1_notes.md` — DONE
 
-- [ ] **1.7.1.1.** Ghi input hash, metadata, phiên bản binary và command thực tế.
+- [x] **1.7.1.1.** Ghi input hash, metadata, phiên bản binary và command thực tế.
 
   **Validate output — 1.7.1.1**
 
@@ -510,9 +510,9 @@
   | Output | Phần input/công cụ/command trong `1.7.1.1_notes.md`. |
   | Cách kiểm tra | Đối chiếu hash, metadata, version và command với artifact. |
   | Tiêu chí đạt | Thông tin đúng dữ liệu thực tế, đủ đường dẫn tái lập. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đã tổng hợp hash, metadata, phiên bản và command từ bản ghi thực tế; hash MP4/Y4M hiện tại khớp bằng chứng. [Notes mục 1.7.1.1](./970_worklog/step1/1.7.1.1_notes.md). |
 
-- [ ] **1.7.1.2.** Đính kèm ảnh SBS giả và giải thích tại sao nó không có chiều sâu stereo thật.
+- [x] **1.7.1.2.** Đính kèm ảnh SBS giả và giải thích tại sao nó không có chiều sâu stereo thật.
 
   **Validate output — 1.7.1.2**
 
@@ -521,32 +521,32 @@
   | Output | Ảnh và giải thích SBS giả trong notes. |
   | Cách kiểm tra | Mở liên kết ảnh, đọc mô tả hai view. |
   | Tiêu chí đạt | Ảnh truy cập được; nêu rõ không có disparity/chiều sâu stereo. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đã đính kèm và mở ảnh SBS giây 5; giải thích hai view giống nhau không có disparity tạo chiều sâu stereo. [Notes mục 1.7.1.2](./970_worklog/step1/1.7.1.1_notes.md). |
 
-- [ ] **1.7.1.3.** Lập bảng control x264 / x264 type 3 / x265 baseline: codec, FPA, arrangement
+- [x] **1.7.1.3.** Lập bảng control x264 / x264 type 3 / x265 baseline: codec, FPA, arrangement
   type, lịch phát, số frame decode, exit code và liên kết log.
 
   **Validate output — 1.7.1.3**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Bảng ba ca trong notes. |
+  | Output | Bảng ba trường hợp trong notes. |
   | Cách kiểm tra | Đối chiếu codec, FPA/type, lịch phát, frame, exit code và log. |
-  | Tiêu chí đạt | Đủ ba ca, mọi kết luận có artifact tương ứng. |
-  | Kết quả | Chưa validate. |
+  | Tiêu chí đạt | Đủ ba trường hợp, mọi kết luận có artifact tương ứng. |
+  | Kết quả ✅ | Đã lập bảng ba trường hợp với codec, FPA/type/lịch phát, số frame, exit code và liên kết log; tách rõ mẫu chèn SEI để thử parser khỏi output x265. [Notes mục 1.7.1.3](./970_worklog/step1/1.7.1.1_notes.md). |
 
-- [ ] **1.7.1.4.** Ghi bằng chứng checksum ảnh của hai ca x264 và khác biệt metadata quan sát được.
+- [x] **1.7.1.4.** Ghi bằng chứng checksum ảnh của hai trường hợp x264 và khác biệt metadata quan sát được.
 
   **Validate output — 1.7.1.4**
 
   | Nội dung | Chi tiết |
   | --- | --- |
   | Output | Bằng chứng checksum và metadata trong notes. |
-  | Cách kiểm tra | Đối chiếu framemd5 và log parser hai ca x264. |
+  | Cách kiểm tra | Đối chiếu framemd5 và log parser hai trường hợp x264. |
   | Tiêu chí đạt | Ghi đúng kết quả pixel và khác biệt metadata; vấn đề chưa giải thích phải nêu rõ. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đã ghi 720/720 checksum ảnh trùng nhau giữa hai trường hợp x264 và khác biệt FPA; nêu giới hạn diff byte và câu hỏi về repetition period. [Notes mục 1.7.1.4](./970_worklog/step1/1.7.1.1_notes.md). |
 
-- [ ] **1.7.1.5.** Chốt requirement rút ra từ experiment và câu hỏi còn mở cho phần đọc code.
+- [x] **1.7.1.5.** Chốt requirement rút ra từ experiment và câu hỏi còn mở cho phần đọc code.
 
   **Validate output — 1.7.1.5**
 
@@ -555,11 +555,11 @@
   | Output | Requirement và câu hỏi mở trong notes. |
   | Cách kiểm tra | Rà kết luận với thí nghiệm đã chạy. |
   | Tiêu chí đạt | Tách rõ yêu cầu rút ra, điều đã biết và câu hỏi cần đọc code. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đã tách kết quả thực nghiệm, yêu cầu gốc type 3/4/5 và các câu hỏi CLI/param/writer, lịch phát, semantics HEVC, API và validation. [Notes mục 1.7.1.5](./970_worklog/step1/1.7.1.1_notes.md). |
 
-#### 1.7.2. Kiểm tra tiêu chí hoàn thành Step 01
+#### 1.7.2. Kiểm tra tiêu chí hoàn thành Step 01 — DONE
 
-- [ ] **1.7.2.1.** Tạo lại cùng SBS fixture từ MP4 đã tải; phân biệt metadata SBS, pixel SBS
+- [x] **1.7.2.1.** Tạo lại cùng SBS fixture từ MP4 đã tải; phân biệt metadata SBS, pixel SBS
   và stereo có chiều sâu thực sự.
 
   **Validate output — 1.7.2.1**
@@ -569,20 +569,20 @@
   | Output | Bằng chứng fixture tái lập được và phân biệt các khái niệm SBS. |
   | Cách kiểm tra | Rà command tạo fixture, metadata/pixel và giải thích trong notes. |
   | Tiêu chí đạt | Có thông tin tái lập cùng fixture; phân biệt pixel SBS, metadata SBS và stereo thật. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Tạo lại Y4M từ MP4 qua stdout và tính SHA-256: 248,836,378 byte, hash trùng hoàn toàn fixture cũ, exit code 0. Notes phân biệt pixel SBS, metadata và stereo thật. [Tái lập](./970_worklog/step1/1.7.2.1_reproduce.json), [notes](./970_worklog/step1/1.7.1.1_notes.md). |
 
-- [ ] **1.7.2.2.** Encode thành công hai ca x264 chỉ khác option frame packing.
+- [x] **1.7.2.2.** Encode thành công hai trường hợp x264 chỉ khác option frame packing.
 
   **Validate output — 1.7.2.2**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Bằng chứng hoàn thành hai ca encode x264. |
+  | Output | Bằng chứng hoàn thành hai trường hợp encode x264. |
   | Cách kiểm tra | Rà command và log ở 1.4. |
   | Tiêu chí đạt | Cả hai encode thành công; tham số encode chỉ khác frame packing. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đối chiếu argv: cùng input và tham số; chỉ khác option `--frame-packing 3` và đường dẫn output. Hai encode exit code 0, đủ 720 frame. [Validation](./970_worklog/step1/1.7.2.2_validation.json). |
 
-- [ ] **1.7.2.3.** Chứng minh bằng parser rằng ca feature có FPA/type 3, control không có.
+- [x] **1.7.2.3.** Chứng minh bằng parser rằng trường hợp feature có FPA/type 3, control không có.
 
   **Validate output — 1.7.2.3**
 
@@ -591,20 +591,20 @@
   | Output | Bằng chứng FPA/type 3 từ parser. |
   | Cách kiểm tra | Rà bảng kết quả và log ở 1.5.1. |
   | Tiêu chí đạt | Feature có FPA/type 3, control không có; parser đã xác nhận hỗ trợ. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Parser hai stream exit code 0; control có 0 FPA, feature có 30 FPA và toàn bộ arrangement type=3. Parser đọc được field FPA trong feature. [Validation](./970_worklog/step1/1.7.2.3_validation.json). |
 
-- [ ] **1.7.2.4.** Xác nhận ảnh decode của hai ca x264, số frame và trạng thái decode.
+- [x] **1.7.2.4.** Xác nhận ảnh decode của hai trường hợp x264, số frame và trạng thái decode.
 
   **Validate output — 1.7.2.4**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Bằng chứng decode và pixel hai ca x264. |
+  | Output | Bằng chứng decode và pixel hai trường hợp x264. |
   | Cách kiểm tra | Rà số frame, trạng thái decode và checksum ở 1.5.2. |
-  | Tiêu chí đạt | Decode đủ 720 frame mỗi ca, pixel trùng; không còn chênh lệch ảnh hưởng kết luận chưa giải thích. |
-  | Kết quả | Chưa validate. |
+  | Tiêu chí đạt | Decode đủ 720 frame mỗi trường hợp, pixel trùng; không còn chênh lệch ảnh hưởng kết luận chưa giải thích. |
+  | Kết quả ✅ | Hai trường hợp decode exit code 0, đủ 720 frame 640×360/yuv420p; kiểm tra lại hai file framemd5 giống nhau, 720 checksum khớp, 0 khác biệt. [Validation](./970_worklog/step1/1.7.2.4_validation.json). |
 
-- [ ] **1.7.2.5.** Đối chiếu x265 trên cùng input và mô tả chính xác phần signalling thiếu.
+- [x] **1.7.2.5.** Đối chiếu x265 trên cùng input và mô tả chính xác phần signalling thiếu.
 
   **Validate output — 1.7.2.5**
 
@@ -613,7 +613,7 @@
   | Output | Kết luận signalling x265 còn thiếu. |
   | Cách kiểm tra | Rà đối chiếu ở 1.6 và bằng chứng trong notes. |
   | Tiêu chí đạt | Mô tả chính xác theo binary/command đã thử, đủ log hỗ trợ. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Cùng input hash; x265 baseline không FPA, CLI từ chối option. Mẫu chèn FPA riêng chỉ xác nhận parser; kết luận giới hạn ở binary/command đã thử, không suy rộng API/thiết bị. [Validation](./970_worklog/step1/1.7.2.5_validation.json), [notes](./970_worklog/step1/1.7.1.1_notes.md). |
 
 ## Sau Step 01
 
@@ -621,20 +621,34 @@ Chỉ chi tiết hóa step tiếp theo sau khi có artifact của thí nghiệm 
 Mỗi step có command tái lập, artifact và tiêu chí hoàn thành. Chưa mở rộng
 sang FFmpeg wrapper hoặc kiểm tra TV trong thí nghiệm metadata đầu tiên.
 
-### 2.1. Đọc/debug x264
+## Step 02 — Đọc/debug x264, đối chiếu chuẩn và triển khai
 
-- [ ] **2.1.1.** Theo luồng CLI → param → validation → SEI writer → NAL.
+### 2.1. Đọc/debug luồng FPA type 3 trong x264 — DONE
+
+- [x] **2.1.1.** Debug một luồng FPA hoàn chỉnh bằng launch: CLI → param → validation →
+  input/frame → điều kiện phát → từng field FPA → payload SEI → NAL → file output.
+  Bắt đầu bằng một frame SBS/type 3, không B-frame, một thread. Source x264
+  tự ghi `x264.log` theo mẫu `step1_1.4.log`; sequence diagram đối chiếu event
+  trong cùng capture theo cách trình bày của `step1_1.4_flow.md`.
+
+  Đọc [flow và sequence diagrams](./970_worklog/step2/2.1.1_flow.md),
+  [capture đã chốt](./970_worklog/step2/2.1.1_x264.log) và
+  [hướng dẫn build/launch](./970_debug/README.md).
+  Profile `x264: Issue 970 - 1 frame FPA flow` trong
+  [launch.json](../.vscode/launch.json) đặt `X264_FLOW_LOG` tới
+  [`x264.log`](../x264.log); mỗi lần chạy sẽ thay file log hiện tại.
+  Logger chỉ bật trong build debug riêng với `X264_FLOW_TRACE`.
 
   **Validate output — 2.1.1**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Ghi chép luồng CLI → NAL. |
-  | Cách kiểm tra | Theo dõi code/debug sau Step 01. |
-  | Tiêu chí đạt | Có tham chiếu cho từng chặng CLI, param, validation, writer và NAL. |
-  | Kết quả | Chưa validate. |
+  | Output | Launch profile, instrumentation x264, log từ encoder, tài liệu flow có sequence diagram, bitstream và parser validation. |
+  | Cách kiểm tra | Launch qua debug adapter/GDB; đối chiếu event, từng field/bit/byte với parser, số byte API/output và decode; so sánh khi bật/tắt logger. |
+  | Tiêu chí đạt | Một timeline xuyên suốt; log do source encoder sinh; diagram khớp event; FPA 7 byte thành NAL 15 byte trước IDR; parser/decode thành công; logger không thay đổi bitstream. |
+  | Kết quả ✅ | Đã chạy đúng launch bằng cppdbg/GDB với logger trong source: 79 event, một thread tại các điểm trace, 18 field FPA khớp parser; 5 NAL/1339 byte, decode một frame thành công. Bật/tắt logger cho byte-identical output. [Flow](./970_worklog/step2/2.1.1_flow.md), [validation](./970_worklog/step2/2.1.1_launch_validation.json), [DAP](./970_worklog/step2/2.1.1_launch_dap.json), [patch](./970_debug/x264-flow.patch). Thử option 8/-2/abc/7 trước đây giữ trong [bằng chứng riêng](./970_worklog/step2/2.1.1_cli_to_nal.md). |
 
-- [ ] **2.1.2.** Giải thích các field và lịch phát đã quan sát trong Step 01.
+- [x] **2.1.2.** Giải thích các field và lịch phát đã quan sát trong Step 01.
 
   **Validate output — 2.1.2**
 
@@ -643,34 +657,11 @@ sang FFmpeg wrapper hoặc kiểm tra TV trong thí nghiệm metadata đầu ti�
   | Output | Giải thích field và lịch phát đã quan sát. |
   | Cách kiểm tra | Đối chiếu code/runtime với artifact Step 01. |
   | Tiêu chí đạt | Mỗi giải thích có bằng chứng; điểm chưa rõ được ghi riêng. |
-  | Kết quả | Chưa validate. |
-
-- [ ] **2.1.3.** Mở rộng type 4/5, parity, B-frame và ảnh hưởng reference list.
-
-  **Validate output — 2.1.3**
-
-  | Nội dung | Chi tiết |
-  | --- | --- |
-  | Output | Kết quả mở rộng type 4/5, parity, B-frame và reference list. |
-  | Cách kiểm tra | Chốt ca thử sau Step 01, đối chiếu runtime/bitstream. |
-  | Tiêu chí đạt | Các trường hợp được kiểm chứng hoặc ghi rõ giới hạn chưa kiểm chứng. |
-  | Kết quả | Chưa validate. |
-
-- [ ] **2.1.4.** Đọc source có sẵn tại `./x264`: `x264.c`, `common/base.c`, `x264.h`,
-  `encoder/encoder.c` và `encoder/set.c` (`x264_sei_frame_packing_write`).
-
-  **Validate output — 2.1.4**
-
-  | Nội dung | Chi tiết |
-  | --- | --- |
-  | Output | Ghi chú các vị trí source liên quan. |
-  | Cách kiểm tra | Đọc các file liệt kê và xác định writer/caller. |
-  | Tiêu chí đạt | Có vị trí code và vai trò của từng file trong luồng frame packing. |
-  | Kết quả | Chưa validate. |
+  | Kết quả ✅ | Đã giải thích các field type 3 và 30 FPA của Step 01 theo writer/caller; repetition_period không quyết định khoảng cách 24 frame. Capture launch mới đối chiếu thêm 18 field với parser và byte payload trong [flow, mục 7–8](./970_worklog/step2/2.1.1_flow.md). Một frame không kiểm chứng lại lịch lặp nhiều frame. Semantics chuẩn để đối chiếu ở 2.2.1. [Bằng chứng](./970_worklog/step2/2.1.2_fields_and_schedule.md). |
 
 ### 2.2. Đối chiếu chuẩn và chốt thiết kế x265
 
-- [ ] **2.2.1.** Đối chiếu H.264/H.265 syntax và semantics bằng tài liệu chuẩn.
+- [ ] **2.2.1.** Đối chiếu H.264/H.265 syntax và semantics cho FPA type 3 bằng tài liệu chuẩn.
   Không sao chép nguyên payload H.264 sang HEVC khi chưa đối chiếu syntax
   và persistence/cancel semantics.
 
@@ -683,37 +674,37 @@ sang FFmpeg wrapper hoặc kiểm tra TV trong thí nghiệm metadata đầu ti�
   | Tiêu chí đạt | Các khác biệt có dẫn chiếu; không sao chép payload khi chưa xác minh. |
   | Kết quả | Chưa validate. |
 
-- [ ] **2.2.2.** Chốt param/API/CLI và lịch phát SEI phía x265.
+- [ ] **2.2.2.** Chốt param/API/CLI và lịch phát SEI type 3 phía x265.
 
   **Validate output — 2.2.2**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Thiết kế param/API/CLI và lịch phát x265. |
+  | Output | Thiết kế param/API/CLI và lịch phát FPA type 3 trong x265. |
   | Cách kiểm tra | Đối chiếu requirement và bảng chuẩn. |
-  | Tiêu chí đạt | Chốt phạm vi, validation tham số, lịch phát và tiêu chí kiểm thử. |
+  | Tiêu chí đạt | Chốt phạm vi type 3, validation tham số, lịch phát và tiêu chí kiểm thử; type 4/5 và các case mở rộng để sau khi type 3 hoàn tất. |
   | Kết quả | Chưa validate. |
 
-### 2.3. Triển khai và validation
+### 2.3. Triển khai và validation type 3
 
-- [ ] **2.3.1.** Triển khai, kiểm tra bitstream và regression khi tắt option.
+- [ ] **2.3.1.** Triển khai type 3, kiểm tra bitstream và regression khi tắt option.
 
   **Validate output — 2.3.1**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Patch và kết quả kiểm tra bitstream/regression. |
-  | Cách kiểm tra | Chạy ca bật/tắt option theo thiết kế đã chốt. |
+  | Output | Patch type 3 và kết quả kiểm tra bitstream/regression. |
+  | Cách kiểm tra | Chạy trường hợp bật `--frame-packing 3` và tắt option theo thiết kế đã chốt. |
   | Tiêu chí đạt | Bitstream đúng thiết kế; regression khi tắt option đạt. |
   | Kết quả | Chưa validate. |
 
-- [ ] **2.3.2.** Validation với stereo thật và thiết bị hỗ trợ HEVC/FPA.
+- [ ] **2.3.2.** Validation type 3 với nguồn stereo SBS thật và thiết bị hỗ trợ HEVC/FPA.
 
   **Validate output — 2.3.2**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Báo cáo nguồn stereo thật và thiết bị HEVC/FPA. |
+  | Output | Báo cáo kiểm chứng type 3 với nguồn stereo SBS thật và thiết bị HEVC/FPA. |
   | Cách kiểm tra | Thử thực tế, ghi thiết bị, command, bitstream và hành vi. |
   | Tiêu chí đạt | Có bằng chứng thiết bị xử lý đúng signalling; chưa thử thì không đánh dấu đạt. |
   | Kết quả | Chưa validate. |

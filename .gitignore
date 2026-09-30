@@ -44,3 +44,6 @@ x264
 # Local work logs and artifacts
 *_worklog/
 skills
+# Temporary Issue 970 x264 flow trace
+/x264.log
+h265nal

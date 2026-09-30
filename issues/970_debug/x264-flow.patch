@@ -1,0 +1,498 @@
+diff --git a/Makefile b/Makefile
+index 3c65b305..fb8462a7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -17,7 +17,7 @@ GENERATED =
+ all: default
+ default:
+ 
+-SRCS = common/osdep.c common/base.c common/cpu.c common/tables.c \
++SRCS = common/flowlog.c common/osdep.c common/base.c common/cpu.c common/tables.c \
+        encoder/api.c
+ 
+ SRCS_X = common/mc.c common/predict.c common/pixel.c common/macroblock.c \
+diff --git a/common/base.c b/common/base.c
+index faf2050e..547a25f4 100644
+--- a/common/base.c
++++ b/common/base.c
+@@ -24,6 +24,7 @@
+  * For more information, contact us at licensing@x264.com.
+  *****************************************************************************/
+ 
++#include "common/flowlog.h"
+ #include "base.h"
+ 
+ #include <ctype.h>
+@@ -1395,7 +1396,10 @@ REALIGN_STACK int x264_param_parse( x264_param_t *p, const char *name, const cha
+     OPT("fake-interlaced")
+         p->b_fake_interlaced = atobool(value);
+     OPT("frame-packing")
++    {
+         p->i_frame_packing = atoi(value);
++        X264_FLOW( "Param", "[PARAM] PARSE name=frame-packing value=%s packing=%d param=%p", value, p->i_frame_packing, (void*)p );
++    }
+     OPT("stitchable")
+         p->b_stitchable = atobool(value);
+     OPT("opencl")
+diff --git a/common/frame.c b/common/frame.c
+index 6bc1b3d7..2cb79390 100644
+--- a/common/frame.c
++++ b/common/frame.c
+@@ -25,6 +25,7 @@
+  * For more information, contact us at licensing@x264.com.
+  *****************************************************************************/
+ 
++#include "common/flowlog.h"
+ #include "common.h"
+ 
+ static int align_stride( int x, int align, int disalign )
+@@ -362,6 +363,7 @@ static int get_plane_ptr( x264_t *h, x264_picture_t *src, uint8_t **pix, int *st
+ 
+ int x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_picture_t *src )
+ {
++    X264_FLOW( "Encoder", "[PICTURE] COPY_BEGIN src=%p src_plane0=%p frame=%p dst_plane0=%p size=%dx%d", (void*)src, (void*)src->img.plane[0], (void*)dst, (void*)dst->plane[0], h->param.i_width, h->param.i_height );
+     int i_csp = src->img.i_csp & X264_CSP_MASK;
+     if( dst->i_csp != frame_internal_csp( i_csp ) )
+     {
+@@ -477,6 +479,7 @@ int x264_frame_copy_picture( x264_t *h, x264_frame_t *dst, x264_picture_t *src )
+                               stride[2]/SIZEOF_PIXEL, h->param.i_width, h->param.i_height );
+         }
+     }
++    X264_FLOW( "Encoder", "[PICTURE] COPY_DONE frame=%p pts=%lld storage_owner=Encoder", (void*)dst, (long long)dst->i_pts );
+     return 0;
+ }
+ 
+diff --git a/encoder/encoder.c b/encoder/encoder.c
+index a1d03f97..d69bfbee 100644
+--- a/encoder/encoder.c
++++ b/encoder/encoder.c
+@@ -25,6 +25,7 @@
+  * For more information, contact us at licensing@x264.com.
+  *****************************************************************************/
+ 
++#include "common/flowlog.h"
+ #include "common/common.h"
+ 
+ #include "set.h"
+@@ -617,6 +618,7 @@ static int validate_parameters( x264_t *h, int b_open )
+         h->param.i_dpb_size = 1;
+     }
+ 
++    X264_FLOW( "Encoder", "[PARAM] VALIDATE packing=%d h=%p", h->param.i_frame_packing, (void*)h );
+     if( h->param.i_frame_packing < -1 || h->param.i_frame_packing > 7 )
+     {
+         x264_log( h, X264_LOG_WARNING, "ignoring unknown frame packing value\n" );
+@@ -1989,6 +1991,7 @@ static void nal_start( x264_t *h, int i_type, int i_ref_idc )
+     nal->i_payload= 0;
+     nal->p_payload= &h->out.p_bitstream[bs_pos( &h->out.bs ) / 8];
+     nal->i_padding= 0;
++    X264_FLOW( "NAL", "[BITSTREAM] NAL_BEGIN index=%d type=%d ref_idc=%d rbsp=%p", h->out.i_nal, i_type, i_ref_idc, (void*)nal->p_payload );
+ }
+ 
+ /* if number of allocated nals is not enough, re-allocate a larger one. */
+@@ -2012,6 +2015,7 @@ static int nal_end( x264_t *h )
+     x264_nal_t *nal = &h->out.nal[h->out.i_nal];
+     uint8_t *end = &h->out.p_bitstream[bs_pos( &h->out.bs ) / 8];
+     nal->i_payload = end - nal->p_payload;
++    X264_FLOW( "NAL", "[BITSTREAM] NAL_RBSP_DONE index=%d type=%d rbsp_bytes=%d payload=%p", h->out.i_nal, nal->i_type, nal->i_payload, (void*)nal->p_payload );
+     /* Assembly implementation of nal_escape reads past the end of the input.
+      * While undefined padding wouldn't actually affect the output, it makes valgrind unhappy. */
+     memset( end, 0xff, 64 );
+@@ -2081,7 +2085,10 @@ static int encoder_encapsulate_nals( x264_t *h, int start )
+     {
+         h->out.nal[i].b_long_startcode = !i || h->out.nal[i].i_type == NAL_SPS || h->out.nal[i].i_type == NAL_PPS ||
+                                          h->param.i_avcintra_class;
++        X264_FLOW( "NAL", "[BITSTREAM] ENCAPSULATE_BEGIN index=%d type=%d rbsp_bytes=%d src=%p dst=%p annexb=%d", i, h->out.nal[i].i_type, h->out.nal[i].i_payload, (void*)h->out.nal[i].p_payload, (void*)nal_buffer, h->param.b_annexb );
+         x264_nal_encode( h, nal_buffer, &h->out.nal[i] );
++        X264_FLOW( "NAL", "[BITSTREAM] ENCAPSULATE_DONE index=%d type=%d sizeBytes=%d payload=%p storage_owner=Encoder", i, h->out.nal[i].i_type, h->out.nal[i].i_payload, (void*)h->out.nal[i].p_payload );
++        X264_FLOW_BYTES( "NAL", "annexb", h->out.nal[i].p_payload, h->out.nal[i].i_payload );
+         nal_buffer += h->out.nal[i].i_payload;
+     }
+ 
+@@ -3777,6 +3784,7 @@ int     x264_encoder_encode( x264_t *h,
+         }
+     }
+ 
++    X264_FLOW( "Encoder", "[FPA] DECISION frame=%d poc=%d keyframe=%d packing=%d emit=%d object=%p", h->fenc->i_frame, h->fenc->i_poc, h->fenc->b_keyframe, h->param.i_frame_packing, h->param.i_frame_packing >= 0 && (h->fenc->b_keyframe || h->param.i_frame_packing == 5), (void*)h->fenc );
+     if( h->param.i_frame_packing >= 0 && (h->fenc->b_keyframe || h->param.i_frame_packing == 5) )
+     {
+         nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
+@@ -3895,8 +3903,12 @@ int     x264_encoder_encode( x264_t *h,
+             return -1;
+     }
+     else
++    {
++        X264_FLOW( "Encoder", "[SLICE] BEGIN frame=%d thread_frames=%d", h->fenc->i_frame, h->i_thread_frames );
+         if( (intptr_t)slices_write( h ) )
+             return -1;
++        X264_FLOW( "Encoder", "[SLICE] DONE frame=%d", h->fenc->i_frame );
++    }
+ 
+     return encoder_frame_end( thread_oldest, thread_current, pp_nal, pi_nal, pic_out );
+ }
+diff --git a/encoder/lookahead.c b/encoder/lookahead.c
+index 844cc6e1..998a0c1a 100644
+--- a/encoder/lookahead.c
++++ b/encoder/lookahead.c
+@@ -36,6 +36,7 @@
+  * the number of frames specified in rc_lookahead.  Recommended setting is
+  * # of bframes + # of threads.
+  */
++#include "common/flowlog.h"
+ #include "common/common.h"
+ #include "analyse.h"
+ 
+@@ -191,6 +192,7 @@ void x264_lookahead_delete( x264_t *h )
+ 
+ void x264_lookahead_put_frame( x264_t *h, x264_frame_t *frame )
+ {
++    X264_FLOW( "Lookahead", "[CHANNEL channel=lookahead] PUT frame=%d object=%p sync_lookahead=%d", frame->i_frame, (void*)frame, h->param.i_sync_lookahead );
+     if( h->param.i_sync_lookahead )
+         x264_sync_frame_list_push( &h->lookahead->ifbuf, frame );
+     else
+@@ -222,6 +224,7 @@ static void lookahead_encoder_shift( x264_t *h )
+ 
+ void x264_lookahead_get_frames( x264_t *h )
+ {
++    X264_FLOW( "Lookahead", "[CHANNEL channel=lookahead] GET sync_lookahead=%d", h->param.i_sync_lookahead );
+     if( h->param.i_sync_lookahead )
+     {   /* We have a lookahead thread, so get frames from there */
+         x264_pthread_mutex_lock( &h->lookahead->ofbuf.mutex );
+diff --git a/encoder/set.c b/encoder/set.c
+index 70c67aee..e939ec0a 100644
+--- a/encoder/set.c
++++ b/encoder/set.c
+@@ -24,6 +24,7 @@
+  * For more information, contact us at licensing@x264.com.
+  *****************************************************************************/
+ 
++#include "common/flowlog.h"
+ #include "common/common.h"
+ #include "set.h"
+ 
+@@ -80,6 +81,7 @@ static void scaling_list_write( bs_t *s, x264_sps_t *sps, int idx )
+ void x264_sei_write( bs_t *s, uint8_t *payload, int payload_size, int payload_type )
+ {
+     int i;
++    X264_FLOW( "SEI", "[SEI] ENVELOPE payload_type=%d payload_size=%d", payload_type, payload_size );
+ 
+     bs_realign( s );
+ 
+@@ -677,6 +679,7 @@ void x264_sei_pic_timing_write( x264_t *h, bs_t *s )
+ 
+ void x264_sei_frame_packing_write( x264_t *h, bs_t *s )
+ {
++    X264_FLOW( "FPAWriter", "[FPA] WRITER_BEGIN frame=%d packing=%d", h->fenc->i_frame, h->param.i_frame_packing );
+     int quincunx_sampling_flag = h->param.i_frame_packing == 0;
+     bs_t q;
+     ALIGNED_4( uint8_t tmp_buf[100] );
+@@ -686,35 +689,56 @@ void x264_sei_frame_packing_write( x264_t *h, bs_t *s )
+     bs_realign( &q );
+ 
+     bs_write_ue( &q, 0 );                         // frame_packing_arrangement_id
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame_packing_arrangement_id value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     bs_write1( &q, 0 );                           // frame_packing_arrangement_cancel_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame_packing_arrangement_cancel_flag value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     bs_write ( &q, 7, h->param.i_frame_packing ); // frame_packing_arrangement_type
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame_packing_arrangement_type value=%d bit_end=%d", (int)(h->param.i_frame_packing), bs_pos( &q ) );
+     bs_write1( &q, quincunx_sampling_flag );      // quincunx_sampling_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=quincunx_sampling_flag value=%d bit_end=%d", (int)(quincunx_sampling_flag), bs_pos( &q ) );
+ 
+     // 0: views are unrelated, 1: left view is on the left, 2: left view is on the right
+     bs_write ( &q, 6, h->param.i_frame_packing != 6 ); // content_interpretation_type
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=content_interpretation_type value=%d bit_end=%d", (int)(h->param.i_frame_packing != 6), bs_pos( &q ) );
+ 
+     bs_write1( &q, 0 );                           // spatial_flipping_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=spatial_flipping_flag value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     bs_write1( &q, 0 );                           // frame0_flipped_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame0_flipped_flag value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     bs_write1( &q, 0 );                           // field_views_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=field_views_flag value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     bs_write1( &q, h->param.i_frame_packing == 5 && !(h->fenc->i_frame&1) ); // current_frame_is_frame0_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=current_frame_is_frame0_flag value=%d bit_end=%d", (int)(h->param.i_frame_packing == 5 && !(h->fenc->i_frame&1)), bs_pos( &q ) );
+     bs_write1( &q, 0 );                           // frame0_self_contained_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame0_self_contained_flag value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     bs_write1( &q, 0 );                           // frame1_self_contained_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame1_self_contained_flag value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     if( quincunx_sampling_flag == 0 && h->param.i_frame_packing != 5 )
+     {
+         bs_write( &q, 4, 0 );                     // frame0_grid_position_x
++        X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame0_grid_position_x value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+         bs_write( &q, 4, 0 );                     // frame0_grid_position_y
++        X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame0_grid_position_y value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+         bs_write( &q, 4, 0 );                     // frame1_grid_position_x
++        X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame1_grid_position_x value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+         bs_write( &q, 4, 0 );                     // frame1_grid_position_y
++        X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame1_grid_position_y value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     }
+     bs_write( &q, 8, 0 );                         // frame_packing_arrangement_reserved_byte
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame_packing_arrangement_reserved_byte value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+     // "frame_packing_arrangement_repetition_period equal to 1 specifies that the frame packing arrangement SEI message persists in output"
+     // for (i_frame_packing == 5) this will undermine current_frame_is_frame0_flag which must alternate every view sequence
+     bs_write_ue( &q, h->param.i_frame_packing != 5 ); // frame_packing_arrangement_repetition_period
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame_packing_arrangement_repetition_period value=%d bit_end=%d", (int)(h->param.i_frame_packing != 5), bs_pos( &q ) );
+     bs_write1( &q, 0 );                           // frame_packing_arrangement_extension_flag
++    X264_FLOW( "FPAWriter", "[FPA-FIELD] name=frame_packing_arrangement_extension_flag value=%d bit_end=%d", (int)(0), bs_pos( &q ) );
+ 
+     bs_align_10( &q );
+ 
++    X264_FLOW( "FPAWriter", "[FPA] PAYLOAD_READY aligned_bits=%d bytes=%d", bs_pos( &q ), bs_pos( &q ) / 8 );
++    X264_FLOW_BYTES( "FPAWriter", "fpa-payload", tmp_buf, bs_pos( &q ) / 8 );
+     x264_sei_write( s, tmp_buf, bs_pos( &q ) / 8, SEI_FRAME_PACKING );
++    X264_FLOW( "FPAWriter", "[FPA] WRITER_DONE frame=%d", h->fenc->i_frame );
+ }
+ 
+ void x264_sei_mastering_display_write( x264_t *h, bs_t *s )
+diff --git a/input/y4m.c b/input/y4m.c
+index 5764d6ac..6b7066f9 100644
+--- a/input/y4m.c
++++ b/input/y4m.c
+@@ -24,6 +24,7 @@
+  * For more information, contact us at licensing@x264.com.
+  *****************************************************************************/
+ 
++#include "common/flowlog.h"
+ #include "input.h"
+ 
+ #define FAIL_IF_ERROR( cond, ... ) FAIL_IF_ERR( cond, "y4m", __VA_ARGS__ )
+@@ -305,6 +306,7 @@ static int read_frame_internal( cli_pic_t *pic, y4m_hnd_t *h, int bit_depth_uc )
+ static int read_frame( cli_pic_t *pic, hnd_t handle, int i_frame )
+ {
+     y4m_hnd_t *h = handle;
++    X264_FLOW( "Y4MInput", "[INPUT] READ_BEGIN frame=%d mmap=%d picture=%p", i_frame, h->use_mmap, (void*)pic );
+ 
+     if( h->use_mmap )
+     {
+@@ -328,6 +330,7 @@ static int read_frame( cli_pic_t *pic, hnd_t handle, int i_frame )
+     if( read_frame_internal( pic, h, h->bit_depth & 7 ) )
+         return -1;
+ 
++    X264_FLOW( "Y4MInput", "[INPUT] READ_DONE frame=%d size=%dx%d plane0=%p plane1=%p plane2=%p storage_owner=Y4MInput", i_frame, pic->img.width, pic->img.height, (void*)pic->img.plane[0], (void*)pic->img.plane[1], (void*)pic->img.plane[2] );
+     h->next_frame = i_frame+1;
+     return 0;
+ }
+diff --git a/output/raw.c b/output/raw.c
+index 149cd5a8..8b799f1d 100644
+--- a/output/raw.c
++++ b/output/raw.c
+@@ -24,6 +24,7 @@
+  * For more information, contact us at licensing@x264.com.
+  *****************************************************************************/
+ 
++#include "common/flowlog.h"
+ #include "output.h"
+ 
+ static int open_file( char *psz_filename, hnd_t *p_handle, cli_output_opt_t *opt )
+@@ -52,8 +53,12 @@ static int write_headers( hnd_t handle, x264_nal_t *p_nal )
+ 
+ static int write_frame( hnd_t handle, uint8_t *p_nalu, int i_size, x264_picture_t *p_picture )
+ {
++    X264_FLOW( "RawOutput", "[OUTPUT] WRITE_BEGIN payload=%p sizeBytes=%d pts=%lld", (void*)p_nalu, i_size, (long long)p_picture->i_pts );
+     if( fwrite( p_nalu, i_size, 1, (FILE*)handle ) )
++    {
++        X264_FLOW( "RawOutput", "[OUTPUT] WRITE_DONE sizeBytes=%d", i_size );
+         return i_size;
++    }
+     return -1;
+ }
+ 
+@@ -62,7 +67,9 @@ static int close_file( hnd_t handle, int64_t largest_pts, int64_t second_largest
+     if( !handle || handle == stdout )
+         return 0;
+ 
+-    return fclose( (FILE*)handle );
++    int result = fclose( (FILE*)handle );
++    X264_FLOW( "RawOutput", "[OUTPUT] CLOSE result=%d", result );
++    return result;
+ }
+ 
+ const cli_output_t raw_output = { open_file, set_param, write_headers, write_frame, close_file };
+diff --git a/x264.c b/x264.c
+index 6c9bb62d..513ffec2 100644
+--- a/x264.c
++++ b/x264.c
+@@ -38,6 +38,7 @@
+ #endif
+ 
+ #include <signal.h>
++#include "common/flowlog.h"
+ #include <getopt.h>
+ #include "x264cli.h"
+ #include "input/input.h"
+@@ -357,6 +358,7 @@ static void print_version_info( void )
+ 
+ REALIGN_STACK int main( int argc, char **argv )
+ {
++    X264_FLOW( "CLI", "[PROCESS] START argc=%d", argc );
+     if( argc == 4 && !strcmp( argv[1], "--autocomplete" ) )
+         return x264_cli_autocomplete( argv[2], argv[3] );
+ 
+@@ -385,6 +387,8 @@ REALIGN_STACK int main( int argc, char **argv )
+     SetConsoleTitleW( org_console_title );
+ #endif
+ 
++    X264_FLOW( "CLI", "[CLI] PARSE_DONE result=%d packing=%d width=%d height=%d frames=%d", ret, param.i_frame_packing, param.i_width, param.i_height, param.i_frame_total );
++
+     /* Control-C handler */
+     signal( SIGINT, sigint_handler );
+ 
+@@ -409,6 +413,7 @@ REALIGN_STACK int main( int argc, char **argv )
+     free( argv );
+ #endif
+ 
++    X264_FLOW( "CLI", "[PROCESS] STOP result=%d", ret );
+     return ret;
+ }
+ 
+@@ -1855,7 +1860,14 @@ static int encode_frame( x264_t *h, hnd_t hout, x264_picture_t *pic, int64_t *la
+     int i_nal;
+     int i_frame_size = 0;
+ 
++    X264_FLOW( "CLI", "[ENCODER-API call=encode] CALL h=%p pic=%p pts=%lld plane0=%p", (void*)h, (void*)pic, pic ? (long long)pic->i_pts : -1LL, pic ? (void*)pic->img.plane[0] : NULL );
+     i_frame_size = x264_encoder_encode( h, &nal, &i_nal, pic, &pic_out );
++    X264_FLOW( "CLI", "[ENCODER-API call=encode] RETURN bytes=%d nal_count=%d", i_frame_size, i_nal );
++#ifdef X264_FLOW_TRACE
++    if( i_frame_size > 0 )
++        for( int i = 0; i < i_nal; i++ )
++            X264_FLOW( "CLI", "[OWNERSHIP] BORROW_NAL index=%d type=%d sizeBytes=%d payload=%p storage_owner=Encoder consumer=RawOutput", i, nal[i].i_type, nal[i].i_payload, (void*)nal[i].p_payload );
++#endif
+ 
+     FAIL_IF_ERROR( i_frame_size < 0, "x264_encoder_encode failed\n" );
+ 
+@@ -1903,6 +1915,7 @@ static void convert_cli_to_lib_pic( x264_picture_t *lib, cli_pic_t *cli )
+     lib->img.i_plane = cli->img.planes;
+     lib->img.i_csp = cli->img.csp;
+     lib->i_pts = cli->pts;
++    X264_FLOW( "CLI", "[PICTURE] METADATA_COPY cli=%p lib=%p src_plane0=%p dst_plane0=%p pixel_copy=0", (void*)cli, (void*)lib, (void*)cli->img.plane[0], (void*)lib->img.plane[0] );
+ }
+ 
+ #define FAIL_IF_ERROR2( cond, ... )\
+@@ -1954,10 +1967,12 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
+         param->i_timebase_den = param->i_fps_num * pulldown->fps_factor;
+     }
+ 
++    X264_FLOW( "CLI", "[ENCODER-API call=open] CALL packing=%d param=%p", param->i_frame_packing, (void*)param );
+     h = x264_encoder_open( param );
+     FAIL_IF_ERROR2( !h, "x264_encoder_open failed\n" );
+ 
+     x264_encoder_parameters( h, param );
++    X264_FLOW( "CLI", "[ENCODER-API call=open] RETURN h=%p packing=%d threads=%d sync_lookahead=%d rc_lookahead=%d bframes=%d", (void*)h, param->i_frame_packing, param->i_threads, param->i_sync_lookahead, param->rc.i_lookahead, param->i_bframe );
+ 
+     FAIL_IF_ERROR2( cli_output.set_param( opt->hout, param ), "can't set outfile param\n" );
+ 
+@@ -2042,6 +2057,7 @@ static int encode( x264_param_t *param, cli_opt_t *opt )
+         if( opt->b_progress && i_frame_output )
+             i_previous = print_status( i_start, i_previous, i_frame_output, param->i_frame_total, i_file, param, 2 * last_dts - prev_dts - first_dts );
+     }
++    X264_FLOW( "CLI", "[ENCODER-API call=delayed_frames] RETURN delayed=%d", x264_encoder_delayed_frames( h ) );
+     /* Flush delayed frames */
+     while( !b_ctrl_c && x264_encoder_delayed_frames( h ) )
+     {
+@@ -2079,7 +2095,11 @@ fail:
+     if( opt->b_progress )
+         fprintf( stderr, "                                                                               \r" );
+     if( h )
++    {
++        X264_FLOW( "CLI", "[ENCODER-API call=close] CALL h=%p", (void*)h );
+         x264_encoder_close( h );
++        X264_FLOW( "CLI", "[ENCODER-API call=close] RETURN" );
++    }
+     fprintf( stderr, "\n" );
+ 
+     if( b_ctrl_c )
+diff --git a/common/flowlog.h b/common/flowlog.h
+new file mode 100644
+index 00000000..d5c1322a
+--- /dev/null
++++ b/common/flowlog.h
+@@ -0,0 +1,17 @@
++/* Temporary Issue 970 walkthrough; enable only in the local debug build. */
++#ifndef X264_FLOWLOG_H
++#define X264_FLOWLOG_H
++
++#ifdef X264_FLOW_TRACE
++void x264_flow_log( const char *component, const char *file, int line,
++                    const char *format, ... ) __attribute__((format(printf, 4, 5)));
++void x264_flow_bytes( const char *component, const char *file, int line,
++                      const char *label, const void *data, int size );
++#define X264_FLOW(component, ...) x264_flow_log(component, __FILE__, __LINE__, __VA_ARGS__)
++#define X264_FLOW_BYTES(component, label, data, size) \
++    x264_flow_bytes(component, __FILE__, __LINE__, label, data, size)
++#else
++#define X264_FLOW(...) do {} while(0)
++#define X264_FLOW_BYTES(...) do {} while(0)
++#endif
++#endif
+diff --git a/common/flowlog.c b/common/flowlog.c
+new file mode 100644
+index 00000000..8a8529ec
+--- /dev/null
++++ b/common/flowlog.c
+@@ -0,0 +1,67 @@
++/* Temporary Linux/POSIX debug logger for the Issue 970 FPA walkthrough. */
++#include "flowlog.h"
++#ifdef X264_FLOW_TRACE
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdarg.h>
++#include <stdint.h>
++#include <pthread.h>
++#include <sys/syscall.h>
++#include <unistd.h>
++#include <time.h>
++
++static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
++static FILE *output;
++static int attempted;
++static unsigned long long event_id;
++
++void x264_flow_log( const char *component, const char *file, int line,
++                    const char *format, ... )
++{
++    pthread_mutex_lock( &lock );
++    if( !attempted )
++    {
++        attempted = 1;
++        const char *path = getenv( "X264_FLOW_LOG" );
++        if( path && *path )
++        {
++            output = fopen( path, "w" );
++            if( !output )
++                fprintf( stderr, "x264: cannot open flow log %s\n", path );
++        }
++    }
++    if( output )
++    {
++        struct timespec now;
++        struct tm wall;
++        char timestamp[32];
++        clock_gettime( CLOCK_REALTIME, &now );
++        localtime_r( &now.tv_sec, &wall );
++        strftime( timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &wall );
++        /* Component is a logical lane; only tid identifies the OS thread. */
++        fprintf( output, "[event=%06llu] %s.%06ld [thread id=%ld component=%s] %s:%d ",
++                 ++event_id, timestamp, now.tv_nsec / 1000, syscall(SYS_gettid),
++                 component, file, line );
++        va_list args;
++        va_start( args, format );
++        vfprintf( output, format, args );
++        va_end( args );
++        fputc( '\n', output );
++        fflush( output );
++    }
++    pthread_mutex_unlock( &lock );
++}
++
++void x264_flow_bytes( const char *component, const char *file, int line,
++                      const char *label, const void *data, int size )
++{
++    const unsigned char *bytes = data;
++    char hex[32 * 3 + 1];
++    int shown = size < 32 ? size : 32;
++    hex[0] = 0;
++    for( int i = 0; i < shown; i++ )
++        snprintf( hex + 3*i, sizeof(hex) - 3*i, "%02x ", bytes[i] );
++    x264_flow_log( component, file, line, "[BYTES stage=%s] size=%d shown=%d hex=%s",
++                   label, size, shown, hex );
++}
++#endif
