@@ -1,12 +1,12 @@
 <h1 align="center">Master Plan — Issue #970: Frame packing arrangement SEI</h1>
 
-<p align="center">Tiến độ: 37/41</p>
+<p align="center">Tiến độ: 37/45</p>
 
 ## Yêu cầu
 
 - Bộ tài liệu task: [yêu cầu #970](./970.md) → [master plan](./970_master_plan.md) → [worklog](./970_worklog/). Mục tiêu: bổ sung báo hiệu 3D trong HEVC bằng SEI `frame_packing_arrangement` để thiết bị hỗ trợ nhận diện cách sắp xếp view từ elementary stream.
 - Triển khai CLI `--frame-packing` và param/API cho **type 3 = side-by-side trước**. Hoàn tất type 3 và các kiểm chứng tương ứng rồi mới lập kế hoạch cho type 4 = top-bottom, type 5 = frame alternation và các case mở rộng khác trong yêu cầu gốc.
-- Ghi SEI trước mỗi keyframe theo yêu cầu gốc; đối chiếu syntax và semantics HEVC trước khi chốt triển khai.
+- Ghi SEI trước mỗi keyframe theo yêu cầu gốc; trước khi chốt triển khai, encode cùng file SBS bằng HEVC reference software `h265nal/HM`, parse bitstream HM để tham khảo và vẫn đối chiếu syntax/semantics với văn bản chuẩn HEVC.
 - Nếu chưa triển khai đầy đủ param, phương án tối thiểu được issue đề xuất là cho phép ghi qua generic user-SEI payload API, kèm tài liệu để front-end tích hợp.
 - Kiểm chứng bằng bitstream/parser và nguồn stereo thật trên thiết bị hỗ trợ HEVC/FPA; option chỉ báo hiệu cách bố trí view, không chuyển video 2D thành stereo thật.
 
@@ -657,55 +657,273 @@ sang FFmpeg wrapper hoặc kiểm tra TV trong thí nghiệm metadata đầu ti�
   | Output | Giải thích field và lịch phát đã quan sát. |
   | Cách kiểm tra | Đối chiếu code/runtime với artifact Step 01. |
   | Tiêu chí đạt | Mỗi giải thích có bằng chứng; điểm chưa rõ được ghi riêng. |
-  | Kết quả ✅ | Đã giải thích các field type 3 và 30 FPA của Step 01 theo writer/caller; repetition_period không quyết định khoảng cách 24 frame. Capture launch mới đối chiếu thêm 18 field với parser và byte payload trong [flow, mục 7–8](./970_worklog/step2/2.1.1_flow.md). Một frame không kiểm chứng lại lịch lặp nhiều frame. Semantics chuẩn để đối chiếu ở 2.2.1. [Bằng chứng](./970_worklog/step2/2.1.2_fields_and_schedule.md). |
+  | Kết quả ✅ | Đã giải thích các field type 3 và 30 FPA của Step 01 theo writer/caller; repetition_period không quyết định khoảng cách 24 frame. Capture launch mới đối chiếu thêm 18 field với parser và byte payload trong [flow, mục 7–8](./970_worklog/step2/2.1.1_flow.md). Một frame không kiểm chứng lại lịch lặp nhiều frame. Semantics chuẩn để đối chiếu ở 2.3.1. [Bằng chứng](./970_worklog/step2/2.1.2_fields_and_schedule.md). |
 
-### 2.2. Đối chiếu chuẩn và chốt thiết kế x265
+### 2.2. Tạo bitstream HEVC tham chiếu bằng HM
 
-- [ ] **2.2.1.** Đối chiếu H.264/H.265 syntax và semantics cho FPA type 3 bằng tài liệu chuẩn.
-  Không sao chép nguyên payload H.264 sang HEVC khi chưa đối chiếu syntax
-  và persistence/cancel semantics.
+- [ ] **2.2.1.** Build debug `TAppEncoder` và `TAppDecoder` bằng `h265nal/HM/build_dev.sh`, rồi lưu danh tính source và công cụ để tái sử dụng khi debug flow.
+
+  **Hướng dẫn thực hiện — 2.2.1**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Người thực hiện | Chưa chọn — hỏi người dùng trước khi chạy. |
+  | Thư mục chạy | `/home/vu/Fundamental/video_tech/x265`. |
+  | Điều kiện trước | Có CMake, C/C++ compiler và checkout `h265nal/HM`; `h265nal/HM/build_dev.sh` tồn tại và chạy được; giữ nguyên mọi thay đổi đã có trong nested repo HM. |
+  | Input | Source và script `h265nal/HM/build_dev.sh`; commit và trạng thái Git hiện tại của checkout HM. |
+  | Output | `h265nal/HM/build/debug/compile_commands.json`, `h265nal/HM/bin/TAppEncoderStaticd`, `h265nal/HM/bin/TAppDecoderStaticd`, cùng `issues/970_worklog/step2/2.2.1_hm_build.log`, `2.2.1_hm_commit.txt`, `2.2.1_hm_status.txt`, `2.2.1_hm_help.txt`, `2.2.1_hm_help_exit.txt` và `2.2.1_hm_version.txt`. |
+  | Tác động | Script tạo build tree debug và binary trong các thư mục `build/`, `bin/` đã được nested repo ignore; mặc định dùng 8 job, `-O0 -g3 -ggdb -fno-omit-frame-pointer` và bật HM tracing; không sửa hoặc dọn thay đổi có sẵn trong HM. |
+
+  ```bash
+  mkdir -p issues/970_worklog/step2
+  git -C h265nal/HM rev-parse HEAD \
+    > issues/970_worklog/step2/2.2.1_hm_commit.txt
+  git -C h265nal/HM status --short \
+    > issues/970_worklog/step2/2.2.1_hm_status.txt
+  ./h265nal/HM/build_dev.sh \
+    > issues/970_worklog/step2/2.2.1_hm_build.log 2>&1
+  set +e
+  h265nal/HM/bin/TAppEncoderStaticd --help \
+    > issues/970_worklog/step2/2.2.1_hm_help.txt 2>&1
+  hm_help_exit=$?
+  set -e
+  printf '%s\n' "$hm_help_exit" \
+    > issues/970_worklog/step2/2.2.1_hm_help_exit.txt
+  test "$hm_help_exit" -eq 1
+  rg -m1 'HM software: Encoder Version' \
+    issues/970_worklog/step2/2.2.1_hm_help.txt \
+    > issues/970_worklog/step2/2.2.1_hm_version.txt
+  ```
+
+  Kỳ vọng: script build trả về exit code `0`; có hai binary debug chạy được, chứa debug symbols và version HM được ghi cùng commit/status để nhận diện chính xác reference software.
 
   **Validate output — 2.2.1**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Bảng đối chiếu syntax/semantics H.264 và HEVC. |
-  | Cách kiểm tra | Đối chiếu tài liệu chuẩn, gồm persistence/cancel. |
-  | Tiêu chí đạt | Các khác biệt có dẫn chiếu; không sao chép payload khi chưa xác minh. |
+  | Output | Binary debug HM, compile database, build log, commit, trạng thái checkout và version encoder. |
+  | Cách kiểm tra | `test -x h265nal/HM/bin/TAppEncoderStaticd && test -x h265nal/HM/bin/TAppDecoderStaticd && test -s h265nal/HM/build/debug/compile_commands.json && readelf -S h265nal/HM/bin/TAppEncoderStaticd \| rg 'debug_info\|debug_line' && rg 'HM software: Encoder Version' issues/970_worklog/step2/2.2.1_hm_version.txt && ! rg -n -i 'error:|failed' issues/970_worklog/step2/2.2.1_hm_build.log` |
+  | Tiêu chí đạt | Build debug thành công; encoder/decoder có debug symbols, không bị strip và giữ frame pointer theo compile command; xác định được HM version/commit; build không tạo thay đổi tracked mới hoặc làm mất thay đổi có sẵn trong nested repo. |
   | Kết quả | Chưa validate. |
 
-- [ ] **2.2.2.** Chốt param/API/CLI và lịch phát SEI type 3 phía x265.
+- [ ] **2.2.2.** Chuyển fixture SBS Y4M ở 1.3.1 sang raw YUV420p mà HM nhận trực tiếp, không scale hoặc đổi pixel.
+
+  **Hướng dẫn thực hiện — 2.2.2**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Người thực hiện | Chưa chọn — hỏi người dùng trước khi chạy. |
+  | Thư mục chạy | `/home/vu/Fundamental/video_tech/x265`. |
+  | Điều kiện trước | Checkbox 1.3.1–1.3.2 đã đạt; `issues/970_worklog/step1/1.3.1_sbs-test.y4m` còn đúng hash đã ghi. |
+  | Input | Y4M 640×360, yuv420p, 24 fps, 720 frame tại `issues/970_worklog/step1/1.3.1_sbs-test.y4m`. |
+  | Output | `issues/970_worklog/step2/2.2.2_sbs-test.yuv`, log, SHA-256 và hai file framemd5 mang tiền tố `2.2.2_`. |
+  | Tác động | Đọc fixture Y4M và tạo thêm khoảng 249 MB raw YUV trong worklog; `-n` ngăn ghi đè output đã có. |
+
+  ```bash
+  ffmpeg -n -nostdin \
+    -i issues/970_worklog/step1/1.3.1_sbs-test.y4m \
+    -map 0:v:0 -frames:v 720 -pix_fmt yuv420p -f rawvideo \
+    issues/970_worklog/step2/2.2.2_sbs-test.yuv \
+    > issues/970_worklog/step2/2.2.2_y4m_to_yuv.log 2>&1
+  sha256sum issues/970_worklog/step2/2.2.2_sbs-test.yuv \
+    > issues/970_worklog/step2/2.2.2_sbs-test.sha256
+  ffmpeg -nostdin -v error \
+    -i issues/970_worklog/step1/1.3.1_sbs-test.y4m -f framemd5 \
+    issues/970_worklog/step2/2.2.2_y4m.framemd5
+  ffmpeg -nostdin -v error -f rawvideo -pixel_format yuv420p \
+    -video_size 640x360 -framerate 24 \
+    -i issues/970_worklog/step2/2.2.2_sbs-test.yuv -f framemd5 \
+    issues/970_worklog/step2/2.2.2_yuv.framemd5
+  ```
+
+  Kỳ vọng: raw YUV có đúng `248832000` byte và framemd5 của 720 frame khớp hoàn toàn với Y4M sau khi bỏ phần header/container.
 
   **Validate output — 2.2.2**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Thiết kế param/API/CLI và lịch phát FPA type 3 trong x265. |
-  | Cách kiểm tra | Đối chiếu requirement và bảng chuẩn. |
-  | Tiêu chí đạt | Chốt phạm vi type 3, validation tham số, lịch phát và tiêu chí kiểm thử; type 4/5 và các case mở rộng để sau khi type 3 hoàn tất. |
+  | Output | Raw YUV, hash, log chuyển đổi và checksum pixel hai cách đọc input. |
+  | Cách kiểm tra | `test "$(stat -c %s issues/970_worklog/step2/2.2.2_sbs-test.yuv)" -eq 248832000 && diff -u issues/970_worklog/step2/2.2.2_y4m.framemd5 issues/970_worklog/step2/2.2.2_yuv.framemd5` |
+  | Tiêu chí đạt | Exit code `0`; kích thước đúng 640×360×1.5×720 byte; đủ 720 frame và không có checksum pixel khác nhau. |
   | Kết quả | Chưa validate. |
 
-### 2.3. Triển khai và validation type 3
+- [ ] **2.2.3.** Encode toàn bộ fixture SBS bằng HM với HEVC FPA type 3 và lưu bitstream làm mẫu tham chiếu triển khai.
 
-- [ ] **2.3.1.** Triển khai type 3, kiểm tra bitstream và regression khi tắt option.
+  **Hướng dẫn thực hiện — 2.2.3**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Người thực hiện | Chưa chọn — hỏi người dùng trước khi chạy. |
+  | Thư mục chạy | `/home/vu/Fundamental/video_tech/x265`. |
+  | Điều kiện trước | Checkbox 2.2.1 và 2.2.2 đã đạt; có `TAppEncoderStaticd` và raw YUV đúng 720 frame. |
+  | Input | `2.2.2_sbs-test.yuv`; cấu hình nền `h265nal/HM/cfg/encoder_lowdelay_P_main.cfg`; FPA type 3, frame 0 là left view. |
+  | Output | `issues/970_worklog/step2/2.2.3_hm-frame-packing-3.h265` và `2.2.3_hm-frame-packing-3.log`. |
+  | Tác động | HM encode 720 frame và có thể chạy lâu hơn x265; reconstruction được bỏ qua qua `/dev/null`, chỉ bitstream/log được giữ. |
+
+  ```bash
+  h265nal/HM/bin/TAppEncoderStaticd \
+    -c h265nal/HM/cfg/encoder_lowdelay_P_main.cfg \
+    -i issues/970_worklog/step2/2.2.2_sbs-test.yuv \
+    -b issues/970_worklog/step2/2.2.3_hm-frame-packing-3.h265 \
+    -o /dev/null \
+    --SourceWidth=640 --SourceHeight=360 --FrameRate=24 \
+    --FramesToBeEncoded=720 --InputBitDepth=8 --InputChromaFormat=420 \
+    --QP=28 --GOPSize=8 --IntraPeriod=24 --DecodingRefreshType=2 \
+    --TemporalFilter=0 \
+    --SEIFramePacking=1 --SEIFramePackingType=3 \
+    --SEIFramePackingId=0 --SEIFramePackingQuincunx=0 \
+    --SEIFramePackingInterpretation=1 \
+    > issues/970_worklog/step2/2.2.3_hm-frame-packing-3.log 2>&1
+  ```
+
+  Kỳ vọng: encoder trả về exit code `0`, encode đủ 720 frame và tạo elementary stream HEVC không rỗng. Không suy ra FPA đã đúng chỉ từ việc encode thành công; checkbox 2.2.4 sẽ parse độc lập.
+
+  **Validate output — 2.2.3**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Output | Bitstream HEVC FPA type 3 và log HM. |
+  | Cách kiểm tra | `test -s issues/970_worklog/step2/2.2.3_hm-frame-packing-3.h265 && test "$(rg -c '^POC' issues/970_worklog/step2/2.2.3_hm-frame-packing-3.log)" -eq 720 && rg 'SUMMARY' issues/970_worklog/step2/2.2.3_hm-frame-packing-3.log` |
+  | Tiêu chí đạt | Encode exit code `0`, bitstream không rỗng, log xác nhận xử lý đủ 720 frame và các option FPA/type/interpretation đúng command. |
+  | Kết quả | Chưa validate. |
+
+- [ ] **2.2.4.** Decode và parse bitstream HM bằng HM decoder cùng parser độc lập, rồi lập bảng reference cho x265.
+
+  **Hướng dẫn thực hiện — 2.2.4**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Người thực hiện | Chưa chọn — hỏi người dùng trước khi chạy. |
+  | Thư mục chạy | `/home/vu/Fundamental/video_tech/x265`. |
+  | Điều kiện trước | Checkbox 2.2.3 đã đạt; HM decoder và FFmpeg `trace_headers` sẵn sàng. |
+  | Input | `issues/970_worklog/step2/2.2.3_hm-frame-packing-3.h265`. |
+  | Output | HM decode log, decoded-SEI log, FFmpeg trace, metadata đếm frame và `issues/970_worklog/step2/2.2.4_hm_reference.md`. |
+  | Tác động | Chỉ đọc bitstream, decode vào `/dev/null` và ghi log/báo cáo trong worklog. |
+
+  ```bash
+  h265nal/HM/bin/TAppDecoderStaticd \
+    -b issues/970_worklog/step2/2.2.3_hm-frame-packing-3.h265 \
+    --OutputDecodedSEIMessagesFilename=issues/970_worklog/step2/2.2.4_hm_decoded_sei.log \
+    > issues/970_worklog/step2/2.2.4_hm_decode.log 2>&1
+  ffmpeg -nostdin -hide_banner \
+    -i issues/970_worklog/step2/2.2.3_hm-frame-packing-3.h265 \
+    -map 0:v:0 -c:v copy -bsf:v trace_headers -f null - \
+    > issues/970_worklog/step2/2.2.4_hm_trace_headers.log 2>&1
+  ffprobe -v error -count_frames -select_streams v:0 \
+    -show_entries stream=codec_name,width,height,pix_fmt,nb_read_frames \
+    -of json issues/970_worklog/step2/2.2.3_hm-frame-packing-3.h265 \
+    > issues/970_worklog/step2/2.2.4_hm_decoded.json
+  ```
+
+  Sau khi ba command đạt, ghi `2.2.4_hm_reference.md`: command/commit HM, NAL type chứa FPA, payload type 45, toàn bộ field FPA, số message, frame/IRAP liên quan và vị trí so với slice. Ghi rõ HM là implementation reference; chuẩn HEVC ở 2.3.1 mới là nguồn quyết định semantics. `h265nal` hiện chỉ nhận diện payload type 45 nhưng chưa parse các field FPA, nên không dùng riêng output của nó để kết luận field đúng.
+
+  **Validate output — 2.2.4**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Output | Bằng chứng decode/parse và bảng HM reference dùng cho thiết kế x265. |
+  | Cách kiểm tra | Đối chiếu field giữa HM decoded-SEI log và FFmpeg trace; đếm frame bằng ffprobe; đối chiếu lịch FPA với IRAP trong bitstream, không suy ra chỉ từ source HM. |
+  | Tiêu chí đạt | Decode/parse exit code `0`, đủ 720 frame 640×360; mọi FPA có payload type 45 và arrangement type 3; báo cáo đủ field/lịch/vị trí, nêu mọi khác biệt parser và không yêu cầu x265 byte-identical với HM. |
+  | Kết quả | Chưa validate. |
+
+### 2.3. Đối chiếu chuẩn và chốt thiết kế x265
+
+- [ ] **2.3.1.** Đối chiếu H.264, HEVC và bitstream HM về syntax/semantics FPA type 3 bằng tài liệu chuẩn.
+  Không sao chép nguyên payload H.264 hoặc hành vi HM sang x265 khi chưa đối chiếu
+  persistence/cancel semantics và quy tắc đặt SEI của HEVC.
+
+  **Hướng dẫn thực hiện — 2.3.1**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Người thực hiện | Chưa chọn — hỏi người dùng trước khi chạy. |
+  | Thư mục chạy | `/home/vu/Fundamental/video_tech/x265`. |
+  | Điều kiện trước | Checkbox 2.1.1–2.1.2 và 2.2.1–2.2.4 đã đạt; có quyền đọc bản chuẩn H.264/HEVC cần dùng. |
+  | Input | Artifact x264 Step 01/2.1, `2.2.4_hm_reference.md`, ITU-T H.264 và H.265 tại `https://www.itu.int/rec/T-REC-H.264` và `https://www.itu.int/rec/T-REC-H.265`. |
+  | Output | `issues/970_worklog/step2/2.3.1_fpa_standard_comparison.md`. |
+  | Tác động | Đọc tài liệu chuẩn và artifact; ghi một báo cáo mới, không sửa source encoder. |
+
+  Lập bảng theo từng syntax element, kiểu mã hóa/số bit, điều kiện hiện diện, semantics, persistence/cancel, prefix/suffix SEI và ràng buộc access unit. Mỗi kết luận phải dẫn chiếu phiên bản/mục của chuẩn, đồng thời đánh dấu rõ quan sát HM nào là minh họa chứ không phải quy phạm.
 
   **Validate output — 2.3.1**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Patch type 3 và kết quả kiểm tra bitstream/regression. |
-  | Cách kiểm tra | Chạy trường hợp bật `--frame-packing 3` và tắt option theo thiết kế đã chốt. |
-  | Tiêu chí đạt | Bitstream đúng thiết kế; regression khi tắt option đạt. |
+  | Output | Bảng đối chiếu syntax/semantics H.264, HEVC và HM. |
+  | Cách kiểm tra | Rà từng dòng với mục chuẩn được dẫn chiếu; kiểm tra riêng persistence/cancel và vị trí SEI. |
+  | Tiêu chí đạt | Các khác biệt có dẫn chiếu; phân biệt quy phạm chuẩn với hành vi HM; không sao chép payload khi chưa xác minh. |
   | Kết quả | Chưa validate. |
 
-- [ ] **2.3.2.** Validation type 3 với nguồn stereo SBS thật và thiết bị hỗ trợ HEVC/FPA.
+- [ ] **2.3.2.** Chốt param/API/CLI, giá trị field và lịch phát SEI type 3 phía x265 dựa trên requirement, chuẩn và HM reference.
+
+  **Hướng dẫn thực hiện — 2.3.2**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Người thực hiện | Chưa chọn — hỏi người dùng trước khi chạy. |
+  | Thư mục chạy | `/home/vu/Fundamental/video_tech/x265`. |
+  | Điều kiện trước | Checkbox 2.3.1 đạt; các điểm khác nhau giữa chuẩn, x264 và HM đã được giải thích hoặc ghi là quyết định cần chọn. |
+  | Input | `issues/970.md`, `2.2.4_hm_reference.md` và `2.3.1_fpa_standard_comparison.md`. |
+  | Output | `issues/970_worklog/step2/2.3.2_x265_fpa_design.md`. |
+  | Tác động | Chỉ ghi thiết kế; chưa sửa source x265 hoặc chạy encode. |
+
+  Tài liệu thiết kế phải chốt tên/type/default/validation của param và CLI; mapping type 3; từng field payload; prefix/suffix NAL; access unit/keyframe phát SEI; API compatibility; file source dự kiến sửa; test unit/CLI/bitstream/regression; và cách so với HM theo field thay vì toàn bộ byte stream.
 
   **Validate output — 2.3.2**
 
   | Nội dung | Chi tiết |
   | --- | --- |
-  | Output | Báo cáo kiểm chứng type 3 với nguồn stereo SBS thật và thiết bị HEVC/FPA. |
-  | Cách kiểm tra | Thử thực tế, ghi thiết bị, command, bitstream và hành vi. |
-  | Tiêu chí đạt | Có bằng chứng thiết bị xử lý đúng signalling; chưa thử thì không đánh dấu đạt. |
+  | Output | Thiết kế param/API/CLI và lịch phát FPA type 3 trong x265. |
+  | Cách kiểm tra | Đối chiếu requirement, bảng chuẩn và HM reference; rà mỗi quyết định có lý do và test tương ứng. |
+  | Tiêu chí đạt | Chốt phạm vi type 3, validation tham số, field, lịch phát và tiêu chí kiểm thử; type 4/5 và các case mở rộng để sau khi type 3 hoàn tất. |
   | Kết quả | Chưa validate. |
 
+### 2.4. Triển khai và validation type 3
+
+- [ ] **2.4.1.** Triển khai type 3, kiểm tra bitstream theo chuẩn/HM reference và regression khi tắt option.
+
+  **Hướng dẫn thực hiện — 2.4.1**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Người thực hiện | Chưa chọn — hỏi người dùng trước khi chạy. |
+  | Thư mục chạy | `/home/vu/Fundamental/video_tech/x265`. |
+  | Điều kiện trước | Checkbox 2.3.2 đạt và thiết kế liệt kê chính xác file/code path/test cần sửa. |
+  | Input | Thiết kế `2.3.2_x265_fpa_design.md`, fixture SBS và HM reference bitstream/report. |
+  | Output | Patch source/test x265; `issues/970_worklog/step2/2.4.1_x265_build.log`, bitstream/log/trace bật-tắt option và `2.4.1_validation.md`. |
+  | Tác động | Sửa source và test x265, build binary local và tạo bitstream kiểm thử; không sửa artifact HM. |
+
+  Thực hiện đúng touchpoint đã duyệt trong thiết kế, sau đó build bằng `./build_dev.sh`. Encode hai trường hợp cùng input/tham số, chỉ trường hợp feature thêm `--frame-packing 3`; parse bằng FFmpeg và parser/test đã chốt, decode đủ frame, rồi ghi so sánh từng field/vị trí với chuẩn và `2.2.4_hm_reference.md`. Chạy bộ test được liệt kê trong thiết kế và lưu toàn bộ command/exit code vào worklog.
+
+  **Validate output — 2.4.1**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Output | Patch type 3 và kết quả build, test, bitstream, decode, HM-reference comparison và regression. |
+  | Cách kiểm tra | Chạy test đã chốt; parse trường hợp bật `--frame-packing 3`; xác nhận trường hợp tắt không có FPA và không đổi hành vi ngoài phạm vi; rà từng field/vị trí với 2.3.1–2.3.2. |
+  | Tiêu chí đạt | Build/test đạt; bitstream đúng thiết kế và chuẩn; field/vị trí khớp reference ở phần được thiết kế; regression khi tắt option đạt; khác biệt hợp lệ với HM được giải thích. |
+  | Kết quả | Chưa validate. |
+
+- [ ] **2.4.2.** Validation type 3 với nguồn stereo SBS thật và thiết bị hỗ trợ HEVC/FPA.
+
+  **Hướng dẫn thực hiện — 2.4.2**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Người thực hiện | Chưa chọn — hỏi người dùng trước khi chạy. |
+  | Thư mục chạy | `/home/vu/Fundamental/video_tech/x265` để chuẩn bị bitstream; phần phát video thực hiện trên thiết bị được ghi trong báo cáo. |
+  | Điều kiện trước | Checkbox 2.4.1 đạt; người dùng cung cấp nguồn stereo SBS thật và thiết bị/player đọc HEVC FPA. |
+  | Input | Nguồn stereo SBS thật; x265 build có type 3; HM bitstream dùng làm đối chứng signalling nếu thiết bị chấp nhận cùng profile/level/container. |
+  | Output | `issues/970_worklog/step2/2.4.2_hardware_validation.md`, command encode/mux, hash bitstream và bằng chứng hành vi thiết bị. |
+  | Tác động | Encode/mux file thử và phát trên phần cứng ngoài repo; không thay đổi firmware/cấu hình lâu dài nếu chưa có phép riêng. |
+
+  Ghi rõ model/firmware thiết bị, player/đường phát, metadata nguồn, command encode và mux, hash file, trường hợp control/feature, hành vi auto-engage 3D và ảnh/video/log bằng chứng. Nếu thiết bị cần container, giữ elementary stream tương ứng để tách ảnh hưởng container khỏi SEI.
+
+  **Validate output — 2.4.2**
+
+  | Nội dung | Chi tiết |
+  | --- | --- |
+  | Output | Báo cáo kiểm chứng type 3 với nguồn stereo SBS thật và thiết bị HEVC/FPA. |
+  | Cách kiểm tra | Đối chiếu hash/command với file đã phát; thử control và feature trên cùng đường phát; ghi thiết bị, bitstream và hành vi thực tế. |
+  | Tiêu chí đạt | Có bằng chứng thiết bị xử lý đúng signalling; phân biệt tác động SEI với container tag; chưa thử thì không đánh dấu đạt. |
+  | Kết quả | Chưa validate. |

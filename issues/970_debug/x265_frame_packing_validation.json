@@ -1,0 +1,208 @@
+{
+  "initial_48_frame_check": {
+    "frames": 48,
+    "results": {
+      "sbs": {
+        "fpa_count": 2,
+        "irap_count": 2,
+        "fields": {
+          "frame_packing_arrangement_id": 0,
+          "frame_packing_arrangement_cancel_flag": 0,
+          "frame_packing_arrangement_type": 3,
+          "quincunx_sampling_flag": 0,
+          "content_interpretation_type": 1,
+          "spatial_flipping_flag": 0,
+          "frame0_flipped_flag": 0,
+          "field_views_flag": 0,
+          "current_frame_is_frame0_flag": 0,
+          "frame0_self_contained_flag": 0,
+          "frame1_self_contained_flag": 0,
+          "frame0_grid_position_x": 0,
+          "frame0_grid_position_y": 0,
+          "frame1_grid_position_x": 0,
+          "frame1_grid_position_y": 0,
+          "frame_packing_arrangement_reserved_byte": 0,
+          "frame_packing_arrangement_persistence_flag": 1,
+          "upsampled_aspect_ratio_flag": 0
+        }
+      },
+      "single": {
+        "fpa_count": 2,
+        "irap_count": 2,
+        "fields": {
+          "frame_packing_arrangement_id": 0,
+          "frame_packing_arrangement_cancel_flag": 0,
+          "frame_packing_arrangement_type": 3,
+          "quincunx_sampling_flag": 0,
+          "content_interpretation_type": 1,
+          "spatial_flipping_flag": 0,
+          "frame0_flipped_flag": 0,
+          "field_views_flag": 0,
+          "current_frame_is_frame0_flag": 0,
+          "frame0_self_contained_flag": 0,
+          "frame1_self_contained_flag": 0,
+          "frame0_grid_position_x": 0,
+          "frame0_grid_position_y": 0,
+          "frame1_grid_position_x": 0,
+          "frame1_grid_position_y": 0,
+          "frame_packing_arrangement_reserved_byte": 0,
+          "frame_packing_arrangement_persistence_flag": 1,
+          "upsampled_aspect_ratio_flag": 0
+        }
+      },
+      "single-repeat": {
+        "fpa_count": 2,
+        "irap_count": 2,
+        "fields": {
+          "frame_packing_arrangement_id": 0,
+          "frame_packing_arrangement_cancel_flag": 0,
+          "frame_packing_arrangement_type": 3,
+          "quincunx_sampling_flag": 0,
+          "content_interpretation_type": 1,
+          "spatial_flipping_flag": 0,
+          "frame0_flipped_flag": 0,
+          "field_views_flag": 0,
+          "current_frame_is_frame0_flag": 0,
+          "frame0_self_contained_flag": 0,
+          "frame1_self_contained_flag": 0,
+          "frame0_grid_position_x": 0,
+          "frame0_grid_position_y": 0,
+          "frame1_grid_position_x": 0,
+          "frame1_grid_position_y": 0,
+          "frame_packing_arrangement_reserved_byte": 0,
+          "frame_packing_arrangement_persistence_flag": 1,
+          "upsampled_aspect_ratio_flag": 0
+        }
+      },
+      "closed": {
+        "fpa_count": 2,
+        "irap_count": 2,
+        "fields": {
+          "frame_packing_arrangement_id": 0,
+          "frame_packing_arrangement_cancel_flag": 0,
+          "frame_packing_arrangement_type": 3,
+          "quincunx_sampling_flag": 0,
+          "content_interpretation_type": 1,
+          "spatial_flipping_flag": 0,
+          "frame0_flipped_flag": 0,
+          "field_views_flag": 0,
+          "current_frame_is_frame0_flag": 0,
+          "frame0_self_contained_flag": 0,
+          "frame1_self_contained_flag": 0,
+          "frame0_grid_position_x": 0,
+          "frame0_grid_position_y": 0,
+          "frame1_grid_position_x": 0,
+          "frame1_grid_position_y": 0,
+          "frame_packing_arrangement_reserved_byte": 0,
+          "frame_packing_arrangement_persistence_flag": 1,
+          "upsampled_aspect_ratio_flag": 0
+        }
+      }
+    },
+    "decoded_pixels_equal": true,
+    "invalid_values_rejected": true
+  },
+  "final_build_25_frame_check": {
+    "frames": 25,
+    "results": {
+      "sbs": {
+        "fpa_count": 2,
+        "irap_count": 2,
+        "fields": {
+          "frame_packing_arrangement_id": 0,
+          "frame_packing_arrangement_cancel_flag": 0,
+          "frame_packing_arrangement_type": 3,
+          "quincunx_sampling_flag": 0,
+          "content_interpretation_type": 1,
+          "spatial_flipping_flag": 0,
+          "frame0_flipped_flag": 0,
+          "field_views_flag": 0,
+          "current_frame_is_frame0_flag": 0,
+          "frame0_self_contained_flag": 0,
+          "frame1_self_contained_flag": 0,
+          "frame0_grid_position_x": 0,
+          "frame0_grid_position_y": 0,
+          "frame1_grid_position_x": 0,
+          "frame1_grid_position_y": 0,
+          "frame_packing_arrangement_reserved_byte": 0,
+          "frame_packing_arrangement_persistence_flag": 1,
+          "upsampled_aspect_ratio_flag": 0
+        }
+      },
+      "single": {
+        "fpa_count": 2,
+        "irap_count": 2,
+        "fields": {
+          "frame_packing_arrangement_id": 0,
+          "frame_packing_arrangement_cancel_flag": 0,
+          "frame_packing_arrangement_type": 3,
+          "quincunx_sampling_flag": 0,
+          "content_interpretation_type": 1,
+          "spatial_flipping_flag": 0,
+          "frame0_flipped_flag": 0,
+          "field_views_flag": 0,
+          "current_frame_is_frame0_flag": 0,
+          "frame0_self_contained_flag": 0,
+          "frame1_self_contained_flag": 0,
+          "frame0_grid_position_x": 0,
+          "frame0_grid_position_y": 0,
+          "frame1_grid_position_x": 0,
+          "frame1_grid_position_y": 0,
+          "frame_packing_arrangement_reserved_byte": 0,
+          "frame_packing_arrangement_persistence_flag": 1,
+          "upsampled_aspect_ratio_flag": 0
+        }
+      },
+      "single-repeat": {
+        "fpa_count": 2,
+        "irap_count": 2,
+        "fields": {
+          "frame_packing_arrangement_id": 0,
+          "frame_packing_arrangement_cancel_flag": 0,
+          "frame_packing_arrangement_type": 3,
+          "quincunx_sampling_flag": 0,
+          "content_interpretation_type": 1,
+          "spatial_flipping_flag": 0,
+          "frame0_flipped_flag": 0,
+          "field_views_flag": 0,
+          "current_frame_is_frame0_flag": 0,
+          "frame0_self_contained_flag": 0,
+          "frame1_self_contained_flag": 0,
+          "frame0_grid_position_x": 0,
+          "frame0_grid_position_y": 0,
+          "frame1_grid_position_x": 0,
+          "frame1_grid_position_y": 0,
+          "frame_packing_arrangement_reserved_byte": 0,
+          "frame_packing_arrangement_persistence_flag": 1,
+          "upsampled_aspect_ratio_flag": 0
+        }
+      },
+      "closed": {
+        "fpa_count": 2,
+        "irap_count": 2,
+        "fields": {
+          "frame_packing_arrangement_id": 0,
+          "frame_packing_arrangement_cancel_flag": 0,
+          "frame_packing_arrangement_type": 3,
+          "quincunx_sampling_flag": 0,
+          "content_interpretation_type": 1,
+          "spatial_flipping_flag": 0,
+          "frame0_flipped_flag": 0,
+          "field_views_flag": 0,
+          "current_frame_is_frame0_flag": 0,
+          "frame0_self_contained_flag": 0,
+          "frame1_self_contained_flag": 0,
+          "frame0_grid_position_x": 0,
+          "frame0_grid_position_y": 0,
+          "frame1_grid_position_x": 0,
+          "frame1_grid_position_y": 0,
+          "frame_packing_arrangement_reserved_byte": 0,
+          "frame_packing_arrangement_persistence_flag": 1,
+          "upsampled_aspect_ratio_flag": 0
+        }
+      }
+    },
+    "decoded_pixels_equal": true,
+    "invalid_values_rejected": true
+  }
+}
