@@ -406,6 +406,7 @@ void x265_param_default(x265_param* param)
 
     /* SEI messages */
     param->preferredTransferCharacteristics = -1;
+    param->framePacking = -1;
     param->pictureStructure = -1;
     param->bEmitCLL = 1;
 
@@ -1435,6 +1436,7 @@ int x265_param_parse(x265_param* p, const char* name, const char* value)
         OPT("max-ausize-factor") p->maxAUSizeFactor = atof(value);
         OPT("dynamic-refine") p->bDynamicRefine = atobool(value);
         OPT("single-sei") p->bSingleSeiNal = atobool(value);
+        OPT("frame-packing") p->framePacking = atoi(value);
         OPT("atc-sei") p->preferredTransferCharacteristics = atoi(value);
         OPT("pic-struct") p->pictureStructure = atoi(value);
         OPT("chunk-start") p->chunkStart = atoi(value);
@@ -1715,7 +1717,10 @@ static inline int _confirm(x265_param* param, bool bflag, const char* message)
 int x265_check_params(x265_param* param)
 {
 #define CHECK(expr, msg) check_failed |= _confirm(param, expr, msg)
+
     int check_failed = 0; /* abort if there is a fatal configuration problem */
+    CHECK(param->framePacking != -1 && param->framePacking != 3,
+          "frame-packing supports only 3 (side-by-side) or -1 (disabled)");
     CHECK((uint64_t)param->sourceWidth * param->sourceHeight > 142606336ULL && !param->bAllowNonConformance,
           "Input video resolution exceeds the maximum supported luma samples 142,606,336 (16384x8704) of Level 7.2.");
     CHECK(param->uhdBluray == 1 && (X265_DEPTH != 10 || param->internalCsp != 1 || param->interlaceMode != 0),
@@ -2020,6 +2025,7 @@ int x265_check_params(x265_param* param)
     bool isSingleSEI = (param->bRepeatHeaders
                      || param->bEmitHRDSEI
                      || param->bEmitInfoSEI
+                     || param->framePacking >= 0
                      || param->bEmitHDR10SEI
                      || param->bEmitIDRRecoverySEI
                    || !!param->interlaceMode
@@ -2504,6 +2510,7 @@ char *x265_param2string(x265_param* p, int padx, int pady)
     s += snprintf(s, bufSize - (s - buf), " scenecut-bias=%.2f", p->scenecutBias);
     BOOL(p->bOptCUDeltaQP, "opt-cu-delta-qp");
     BOOL(p->bAQMotion, "aq-motion");
+    s += snprintf(s, bufSize - (s - buf), " frame-packing=%d", p->framePacking);
     BOOL(p->bEmitHDR10SEI, "hdr10");
     BOOL(p->bHDR10Opt, "hdr10-opt");
     BOOL(p->bDhdr10opt, "dhdr10-opt");
@@ -2897,6 +2904,7 @@ void x265_copy_params(x265_param* dst, x265_param* src)
     dst->cbQpOffset = src->cbQpOffset;
     dst->crQpOffset = src->crQpOffset;
     dst->preferredTransferCharacteristics = src->preferredTransferCharacteristics;
+    dst->framePacking = src->framePacking;
     dst->pictureStructure = src->pictureStructure;
 
     dst->rc.rateControlMode = src->rc.rateControlMode;

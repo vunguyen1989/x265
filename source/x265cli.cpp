@@ -379,6 +379,7 @@ namespace X265_NS {
         H0("   --[no-]eob                    Emit end of bitstream nal unit at the end of the bitstream. Default %s\n", OPT(param->bEnableEndOfBitstream));
         H0("   --[no-]eos                    Emit end of sequence nal unit at the end of every coded video sequence. Default %s\n", OPT(param->bEnableEndOfSequence));
         H1("   --hash <integer>              Decoded Picture Hash SEI 0: disabled, 1: MD5, 2: CRC, 3: Checksum. Default %d\n", param->decodedPictureHashSEI);
+        H0("   --frame-packing <integer>     Emit frame packing SEI: 3 = side-by-side (left view on left). Default disabled\n");
         H0("   --atc-sei <integer>           Emit the alternative transfer characteristics SEI message where the integer is the preferred transfer characteristic. Default disabled\n");
         H0("   --pic-struct <integer>        Set the picture structure and emit it in the picture timing SEI message. Values in the range 0..12. See D.3.3 of the HEVC spec. for a detailed explanation.\n");
         H0("   --log2-max-poc-lsb <integer>  Maximum of the picture order count\n");

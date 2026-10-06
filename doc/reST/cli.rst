@@ -2526,6 +2526,13 @@ VUI fields must be manually specified.
 	Parse the input file specified and inserts SEI messages into the bitstream. 
 	Currently, we support only PREFIX SEI messages. This is an "application-only" feature.
 
+.. option:: --frame-packing <integer>
+
+    Emit a persistent frame packing arrangement prefix SEI before each IRAP
+    picture. Supported values are 3 (side-by-side, left view on the left) and
+    -1 (disabled, the default). The input must already contain packed stereo
+    views; this option only adds signalling. Types 4 and 5 are not yet supported.
+
 .. option:: --atc-sei <integer>
 
 	Emit the alternative transfer characteristics SEI message where the integer

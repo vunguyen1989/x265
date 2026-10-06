@@ -793,6 +793,11 @@ void FrameEncoder::compressFrame(int layer)
     m_rce.encodeOrder = m_frame[layer]->m_encodeOrder;
     int prevBPSEI = m_rce.encodeOrder ? m_top->m_lastBPSEI : 0;
 
+    // Nested SEI writers append to this buffer. A reused frame encoder can
+    // still contain the previous picture's slice data when headers are absent.
+    if (m_param->framePacking == 3 && slice->isIRAP() && m_param->bSingleSeiNal && !m_param->bRepeatHeaders)
+        m_bs.resetBits();
+
     if (m_frame[layer]->m_lowres.bKeyframe)
     {
         if (m_param->bEmitHRDSEI)
@@ -874,6 +879,12 @@ void FrameEncoder::compressFrame(int layer)
         sei->writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
     }
 
+    if (m_param->framePacking == 3 && slice->isIRAP())
+    {
+        SEIFramePacking sei;
+        sei.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
+    }
+
     if (m_param->preferredTransferCharacteristics > -1 && slice->isIRAP())
     {
         SEIAlternativeTC m_seiAlternativeTC;
@@ -922,7 +933,7 @@ void FrameEncoder::compressFrame(int layer)
             x265_log(m_param, X265_LOG_ERROR, "Unrecognized SEI type\n");
     }
 
-    bool isSei = ((m_frame[layer]->m_lowres.bKeyframe && m_param->bRepeatHeaders) || m_param->bEmitHRDSEI ||
+    bool isSei = ((m_param->framePacking == 3 && slice->isIRAP()) || (m_frame[layer]->m_lowres.bKeyframe && m_param->bRepeatHeaders) || m_param->bEmitHRDSEI ||
                  !!m_param->interlaceMode || (m_frame[layer]->m_lowres.sliceType == X265_TYPE_IDR && m_param->bEmitIDRRecoverySEI) ||
                    m_frame[layer]->m_userSEI.numPayloads);
 

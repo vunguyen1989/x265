@@ -2403,6 +2403,10 @@ typedef struct x265_param
      * When set, overrides foveaGazeX/foveaGazeY with per-frame values.
      * NULL = use static gaze from foveaGazeX/foveaGazeY. */
     char* foveaGazeFile;
+    /* Stereoscopic frame packing SEI: -1 disables signalling (default),
+     * 3 signals side-by-side with the left view on the left.
+     * The input must already be packed. Other types are not supported yet. */
+    int framePacking;
 } x265_param;
 
 /* x265_param_alloc:
