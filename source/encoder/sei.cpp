@@ -38,9 +38,21 @@ const uint8_t SEIuserDataUnregistered::m_uuid_iso_iec_11578[16] = {
 * in bitstream bs */
 void SEI::writeSEImessages(Bitstream& bs, const SPS& sps, NalUnitType nalUnitType, NALList& list, int isNested, int layer)
 {
+    /* Reset SEI - bs là buffer của caller (có thể là FrameEncoder::m_bs).
+     * isNested = 0: message tạo một NAL riêng, nên bỏ nội dung NAL trước
+     * (AUD/PPS/SEI/slice header...) rồi ghi payload_type, payload_size và payload.
+     * Cuối hàm sẽ căn chỉnh nếu cần và serialize ngay. NAL trước đã nằm trong
+     * list thì không bị xóa; reset chỉ làm rỗng buffer tạm, giữ lại allocation.
+     * isNested != 0: không reset vì phải append vào messages đang tích lũy,
+     * cũng không serialize tại cuối hàm; caller quản lý đầu/cuối nhóm SEI.
+     * Trong các chỗ gọi dùng bSingleSeiNal làm isNested, true chính là đường
+     * gộp nhiều messages vào một NAL. Reset mỗi message sẽ làm mất message cũ.
+     * writeTrailingSEIMessages luôn truyền false nên suffix hash tự reset,
+     * ghi và serialize riêng, không phụ thuộc tùy chọn gộp prefix SEI. */
     if (!isNested)
         bs.resetBits();
 
+    // Lượt này chỉ đếm kích thước bằng BitCounter, chưa ghi payload vào bs.
     BitCounter counter;
     m_bitIf = &counter;
     writeSEI(sps);
@@ -66,6 +78,9 @@ void SEI::writeSEImessages(Bitstream& bs, const SPS& sps, NalUnitType nalUnitTyp
 
     if (!isNested)
     {
+        /* NAL riêng kết thúc ở đây. serialize không reset bs: dữ liệu vẫn
+         * còn trong buffer tạm cho đến reset tiếp theo của caller/hàm này.
+         * Nhóm SEI gộp bỏ qua block này để caller còn append message khác. */
         if (nalUnitType != NAL_UNIT_UNSPECIFIED)
             bs.writeByteAlignment();
         list.serialize(nalUnitType, bs, layer, (1 + (nalUnitType == NAL_UNIT_CODED_SLICE_TSA_N)));

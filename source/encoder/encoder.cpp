@@ -3448,16 +3448,28 @@ void Encoder::updateRefIdx()
 
 void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
 {
+    /* bs là tham chiếu đến buffer của caller; khi compressFrame gọi hàm này,
+     * bs chính là m_bs của FrameEncoder, không phải một buffer mới.
+     * resetBits chỉ làm rỗng phần dữ liệu hợp lệ để dùng lại allocation.
+     * list.serialize chép NAL sang list nhưng vẫn giữ nội dung trong bs,
+     * nên mỗi NAL mới bên dưới cần chuẩn bị buffer riêng. */
     sbacCoder.setBitstream(&bs);
 
     if (m_param->dolbyProfile && !m_param->bRepeatHeaders)
     {
+        /* Reset headers 1/5 - Nhánh Dolby phát AUD trước parameter sets.
+         * Bỏ nội dung caller để bs chỉ chứa byte AUD 0x10 sẽ ghi tiếp;
+         * serialize lưu AUD vào list, không tự làm rỗng bs sau khi ghi. */
         bs.resetBits();
         bs.write(0x10, 8);
         list.serialize(NAL_UNIT_ACCESS_UNIT_DELIMITER, bs);
     }
     
     /* headers for start of bitstream */
+    /* Reset headers 2/5 - Bắt đầu VPS (Video Parameter Set) mới.
+     * Nếu nhánh Dolby vừa chạy thì bỏ payload AUD còn trong bs; nếu không,
+     * bỏ nội dung từ caller. VPS phải là NAL riêng, không nối cú pháp vào AUD.
+     * AUD hoặc NAL đã có trong list không bị xóa bởi reset này. */
     bs.resetBits();
 #if ENABLE_ALPHA || ENABLE_MULTIVIEW
     sbacCoder.codeVPS(m_vps, m_sps);
@@ -3469,6 +3481,10 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
 
     for (int layer = 0; layer < m_param->numLayers; layer++)
     {
+        /* Reset headers 3/5 - Bắt đầu SPS (Sequence Parameter Set) của layer.
+         * Lượt đầu bỏ VPS còn sót; lượt sau bỏ SPS của layer trước.
+         * Những NAL đó đã được chép vào list. Mỗi lượt chỉ ghi một SPS mới,
+         * rồi căn chỉnh và serialize với layerId tương ứng. */
         bs.resetBits();
         sbacCoder.codeSPS(m_sps, m_scalingList, m_vps.ptl, layer);
         bs.writeByteAlignment();
@@ -3477,6 +3493,10 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
 
     for (int layer = 0; layer < m_param->numLayers; layer++)
     {
+        /* Reset headers 4/5 - Bắt đầu PPS (Picture Parameter Set) của layer.
+         * Lượt đầu bỏ SPS cuối cùng; lượt sau bỏ PPS của layer trước.
+         * Không reset thì codePPS ghi nối vào dữ liệu cũ, khiến payload NAL_PPS
+         * chứa cả cú pháp NAL trước. Parameter sets đã lưu trong list vẫn còn. */
         bs.resetBits();
         sbacCoder.codePPS(m_pps, (m_param->maxSlices <= 1), m_iPPSQpMinus26, layer);
         bs.writeByteAlignment();
@@ -3510,6 +3530,15 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
     }
 #endif
 
+    /* Reset headers 5/5 - Chuẩn bị buffer cho nhóm SEI headers phía dưới.
+     * Single-SEI sẽ append từng message (HDR10/info/active parameter sets),
+     * nên caller phải đưa bs về rỗng trước message đầu tiên của nhóm này.
+     * Thông thường bs còn PPS cuối; các nhánh alpha/multiview phía trên cũng
+     * có thể đã ghi vào bs. Reset bỏ mọi phần chưa serialize tại vị trí này;
+     * không có thao tác tự serialize trước reset. NAL trong list vẫn được giữ.
+     * Khi không gộp, writeSEImessages tự reset/serialize từng message.
+     * Khi gộp, messages phía dưới còn trong bs khi hàm trả về; caller chịu
+     * trách nhiệm kết thúc/serialize nhóm (compressFrame làm ở Block 10). */
     if (m_param->bSingleSeiNal)
         bs.resetBits();
 

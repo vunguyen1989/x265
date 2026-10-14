@@ -467,11 +467,38 @@ void FrameEncoder::writeTrailingSEIMessages(int layer)
     }
 
     m_seiReconPictureDigest.setSize(payloadSize);
+    /* Reset gián tiếp: hàm này không gọi m_bs.resetBits() trực tiếp.
+     * Tham số false bên dưới là isNested = 0: writeSEImessages sẽ reset m_bs
+     * trước khi ghi decoded picture hash, rồi căn chỉnh và serialize ngay.
+     * Trước lời gọi, m_bs có thể còn slice header của VCL vừa đóng gói;
+     * bỏ header đó để NAL_SUFFIX_SEI chỉ chứa SEI hash, không lẫn dữ liệu VCL.
+     * VCL đã nằm trong m_nalList nên vẫn được giữ nguyên. Suffix hash này
+     * được ghi thành NAL riêng kể cả khi bật bSingleSeiNal cho prefix SEI. */
     m_seiReconPictureDigest.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_SUFFIX_SEI, m_nalList, false, layer);
 }
 
 void FrameEncoder::compressFrame(int layer)
 {
+    /* Hướng dẫn đọc: xem work-log/compressFrame_block_explain.md tại workspace.
+     * Các Block 1-18 bên dưới dùng cùng số thứ tự với tài liệu đó.
+     * Hàm điều phối encode một picture: chuẩn bị -> chọn QP -> xử lý CTU rows
+     * -> ghi bitstream/NAL -> cập nhật rate control và giải phóng references.
+     * layer là chỉ số layer/view (thường bằng 0 khi encode một layer),
+     * không phải độ sâu CU hay temporal layer.
+     * Frame chứa ảnh gốc/tái tạo; Slice chứa thông tin cú pháp và cấu hình.
+     * m_bs là buffer tạm để xây cú pháp, m_outStreams chứa dữ liệu CABAC,
+     * còn m_nalList giữ các NAL đã được đóng gói để trả ra ngoài. */
+
+    /* Cách hiểu mọi resetBits bên dưới: đưa số byte hợp lệ và số bit đang ghi
+     * dở về 0 để lần ghi tiếp bắt đầu từ đầu buffer. Không memset toàn bộ vùng
+     * nhớ, không giải phóng allocation và không xóa NAL trong m_nalList.
+     * serialize chép dữ liệu sang NAL buffer nhưng không tự reset m_bs.
+     * Reset m_bs cũng không reset xác suất CABAC hay dữ liệu m_outStreams. */
+
+    /* Block 1 - Reset trạng thái và thống kê cho picture hiện tại.
+     * Đo thời gian worker/ME/chờ, reset tiến độ rows và trạng thái VBV.
+     * SSD (sai số bình phương) và SSIM được tích lũy lại từ đầu cho layer này;
+     * FrameEncoder được tái sử dụng nên cần bỏ thống kê của picture trước. */
     ProfileScopeEvent(frameThread);
     X265_FLOW_LOG("FrameEncoder",
                   "[FRAME encoder=%d frame=%d layer=%d] BEGIN object=Frame@%p stage=compress owner=FrameEncoder-%d",
@@ -500,39 +527,75 @@ void FrameEncoder::compressFrame(int layer)
     memset(&(m_frame[layer]->m_encData->m_frameStats), 0, sizeof(m_frame[layer]->m_encData->m_frameStats));
     m_sLayerId = layer;
 
+    /* Block 2 - Chuẩn bị bản đồ cạnh cho EDGE_BASED_RSKIP.
+     * Analysis đọc bản đồ này để hỗ trợ dừng thử chia nhỏ CU ở vùng đơn giản.
+     * Nếu dùng Edge AQ thì bước phân tích trước đã chuẩn bị bản đồ tương ứng,
+     * nên nhánh này chỉ tính khi aqMode khác X265_AQ_EDGE. */
     if (m_param->rc.aqMode != X265_AQ_EDGE && m_param->recursionSkipMode == EDGE_BASED_RSKIP)
     {
         int height = m_frame[layer]->m_fencPic->m_picHeight;
         int width = m_frame[layer]->m_fencPic->m_picWidth;
         intptr_t stride = m_frame[layer]->m_fencPic->m_stride;
 
+        /* m_picOrg[0] là plane Y gốc; stride tính bằng phần tử pixel giữa 2 hàng.
+         * NULL/false: không lưu/tính hướng cạnh; 1: ghi điểm có cạnh bằng 1,
+         * điểm không có cạnh bằng 0 vào m_edgeBitPic trong vùng được xử lý. */
         if (!computeEdge(m_frame[layer]->m_edgeBitPic, m_frame[layer]->m_fencPic->m_picOrg[0], NULL, stride, height, width, false, 1))
         {
             x265_log(m_param, X265_LOG_ERROR, " Failed to compute edge !");
         }
     }
 
+    /* Block 3 - Ghi các NAL mở đầu: EOS nếu cần, AUD, rồi headers nếu bật.
+     * Access unit (AU) là nhóm NAL phục vụ giải mã một picture. */
     /* Emit access unit delimiter unless this is the first frame and the user is
      * not repeating headers (since AUD is supposed to be the first NAL in the access
      * unit) */
     Slice* slice = m_frame[layer]->m_encData->m_slice;
 
+    /* 3.1 - Param chỉ bật/tắt EOS; thời điểm ghi do loại frame quyết định.
+     * Trước mỗi IDR có POC != 0, ghi EOS để kết thúc coded video sequence cũ.
+     * Điều kiện là IDR, không phải mọi I/keyframe hay mọi ranh giới GOP;
+     * một sequence có thể chứa nhiều GOP. IDR đầu tiên chưa có sequence cũ. */
     if (m_param->bEnableEndOfSequence && m_frame[layer]->m_lowres.sliceType == X265_TYPE_IDR && m_frame[layer]->m_poc)
     {
+        /* Reset 1/7 - Chuẩn bị EOS từ buffer rỗng.
+         * FrameEncoder dùng lại m_bs qua nhiều pictures/layers, nên buffer có
+         * thể còn cú pháp NAL trước. EOS không được mang theo nội dung đó;
+         * reset rồi serialize NAL_UNIT_EOS mà không ghi payload ảnh vào m_bs. */
         m_bs.resetBits();
         m_nalList.serialize(NAL_UNIT_EOS, m_bs);
     }
 
+    /* 3.2 - AUD đánh dấu đầu AU; bỏ qua picture đầu nếu không repeat headers,
+     * theo quy tắc thứ tự NAL được mô tả ở comment phía trên. */
     if (m_param->bEnableAccessUnitDelimiters && (m_frame[layer]->m_poc || m_param->bRepeatHeaders))
     {
+        /* Reset 2/7 - Bắt đầu payload AUD mới, bỏ cú pháp NAL trước còn sót.
+         * Sau reset: codeAUD ghi pic_type, writeByteAlignment kết thúc payload,
+         * serialize đóng gói riêng thành NAL_ACCESS_UNIT_DELIMITER.
+         * Nếu vừa reset để ghi EOS thì buffer có thể đã rỗng; AUD vẫn tự
+         * chuẩn bị buffer vì nhánh EOS không phải lúc nào cũng chạy. */
         m_bs.resetBits();
         m_entropyCoder.setBitstream(&m_bs);
+        // codeAUD ghi pic_type 3 bit: I -> 0, P -> 1, B -> 2.
         m_entropyCoder.codeAUD(*slice);
+        // Thêm bit 1 rồi đệm bit 0 đến hết byte trước khi đóng gói NAL.
         m_bs.writeByteAlignment();
         m_nalList.serialize(NAL_UNIT_ACCESS_UNIT_DELIMITER, m_bs);
+        /* Reset 3/7 - serialize đã chép AUD sang m_nalList nhưng không reset m_bs.
+         * Single-SEI ghi nối các messages vào m_bs, không tự reset từng lần,
+         * nên phải bỏ dữ liệu AUD còn sót trước khi tích lũy SEI.
+         * Nếu không gộp, writeSEImessages tự reset trước mỗi message.
+         * Reset buffer tạm không xóa NAL AUD đã lưu trong m_nalList.
+         * Luồng mong muốn: AUD -> serialize -> reset -> SEI 1 -> SEI 2
+         * -> serialize SEI chung; thiếu reset có thể ghép AUD vào payload SEI. */
         if (m_param->bSingleSeiNal)
             m_bs.resetBits();
     }
+    /* 3.3 - Repeat headers: tại keyframe, ghi lại VPS/SPS/PPS và SEI headers
+     * theo cấu hình. Các khóa bảo vệ dữ liệu PPS/RPS dùng chung giữa frames.
+     * RPS (Reference Picture Set) mô tả các picture tham chiếu cần giữ. */
     if (m_frame[layer]->m_lowres.bKeyframe && m_param->bRepeatHeaders)
     {
         if (m_param->bOptRefListLengthPPS)
@@ -554,9 +617,27 @@ void FrameEncoder::compressFrame(int layer)
             m_top->getStreamHeaders(m_nalList, m_entropyCoder, m_bs);
     }
 
+    // Khi đọc stats multipass, lấy chỉ số RPS đã chọn theo encode order.
     if (m_top->m_param->rc.bStatRead && m_top->m_param->bMultiPassOptRPS)
         m_frame[layer]->m_encData->m_slice->m_rpsIdx = (m_top->m_rateControl->m_rce2Pass + m_frame[layer]->m_encodeOrder)->rpsIdx;
 
+    /* Block 4 - Weighted prediction (dự đoán có trọng số).
+     * Điều chỉnh pixel reference để dự đoán tốt hơn khi ảnh sáng/tối dần
+     * hoặc thay đổi tương phản, dù nội dung và chuyển động gần như giống nhau.
+     * Công thức khái niệm: prediction = weight * reference_pixel + offset.
+     * weight là hệ số nhân; offset dịch độ sáng lên/xuống. Cách tính thực tế
+     * dùng số nguyên, dịch bit, làm tròn và giới hạn giá trị pixel.
+     * Ví dụ reference = 100, pixel hiện tại = 120:
+     *   Không điều chỉnh: prediction = 100, residual = 120 - 100 = 20.
+     *   weight = 1, offset = 20: prediction = 120, residual = 0.
+     * Residual (pixel gốc - prediction) nhỏ hơn thường cần ít bit mã hóa hơn.
+     * P-slice dùng list L0; B-slice dùng L0/L1 và có thể kết hợp hai dự đoán.
+     * Nhánh này chỉ dùng ở base layer (!layer), khi PPS bật weight cho P/B.
+     * analysisLoad: dùng lại weights đã lưu; nếu không thì weightAnalyse
+     * ước tính mới, mượn worker rảnh qua tryBondPeers hoặc chạy trên frame thread.
+     * Nếu không dùng weighted prediction thì disableWeights ở cuối block.
+     * Block này chuẩn bị tham số; Block 5 gắn chúng vào motion references.
+     * Tham số được báo trong slice header để decoder tạo cùng prediction. */
     // Weighted Prediction parameters estimation.
     bool bUseWeightP = slice->m_sliceType == P_SLICE && slice->m_pps->bUseWeightPred && !layer;
     bool bUseWeightB = slice->m_sliceType == B_SLICE && slice->m_pps->bUseWeightedBiPred && !layer;
@@ -596,8 +677,13 @@ void FrameEncoder::compressFrame(int layer)
     else
         slice->disableWeights();
 
+    // analysisSave chuẩn bị nơi lưu weights để lần encode sau có thể tái sử dụng.
     if (strlen(m_param->analysisSave) && (bUseWeightP || bUseWeightB))
         reuseWP = (WeightParam*)m_frame[layer]->m_analysisData.wt;
+    /* Block 5 - Khởi tạo motion references: I dùng 0 list, P dùng L0,
+     * B dùng L0 và L1. m_mref gắn ảnh tái tạo cùng weights nếu có.
+     * Dự đoán phải dùng reconstructed picture vì decoder cũng chỉ có ảnh này;
+     * dùng ảnh gốc làm reference sẽ khiến encoder và decoder không khớp nhau. */
     // Generate motion references
     int numPredDir = slice->isInterP() ? 1 : slice->isInterB() ? 2 : 0;
     for (int l = 0; l < numPredDir; l++)
@@ -618,6 +704,10 @@ void FrameEncoder::compressFrame(int layer)
 
     }
 
+    /* Block 6 - Chọn QP qua rate control và chuẩn bị AQ cho layer bổ sung.
+     * TLD (Thread Local Data) là vùng làm việc riêng của worker, chứa analysis
+     * và quantization. numTLD quyết định số vùng cần thiết lập/tổng hợp.
+     * QP cao thường lượng tử hóa mạnh hơn: ít bit hơn, sai số lớn hơn. */
     int numTLD;
     if (m_pool)
         numTLD = m_param->bEnableWavefront ? m_pool->m_numWorkers : m_pool->m_numWorkers + m_pool->m_numProviders;
@@ -626,10 +716,14 @@ void FrameEncoder::compressFrame(int layer)
 
     /* Get the QP for this frame from rate control. This call may block until
      * frames ahead of it in encode order have called rateControlEnd() */
+    // Base layer chọn QP theo CQP/CRF/ABR và VBV; layer khác dùng lại newQp.
     int qp = (layer == 0) ? m_top->m_rateControl->rateControlStart(m_frame[layer], &m_rce, m_top) : (int)m_rce.newQp;
 
     m_rce.newQp = qp;
 
+    /* AQ điều chỉnh QP theo vùng ảnh. Với multiview, sao chép AQ/CU-tree
+     * offsets từ base layer; với scalable layers, reset các offsets về 0.
+     * Nhánh hevcAq làm tương tự trên các độ sâu AQ được cấu hình. */
     if (!!layer && m_top->m_lookahead->m_bAdaptiveQuant)
     {
         int ncu;
@@ -690,12 +784,18 @@ void FrameEncoder::compressFrame(int layer)
             }
         }
     }
+    /* Block 7 - Lọc temporal/noise reduction và hoàn thiện QP của slice.
+     * MCSTF dùng các ảnh lân cận theo thời gian cùng motion compensation để
+     * lọc ảnh trước khi nén, khi cả cấu hình và frame/GOP cho phép. */
     if (m_param->bEnableTemporalFilter && m_top->isFilterThisframe(m_frame[layer]->m_mcstf->m_sliceTypeConfig, m_frame[layer]->m_lowres.sliceType) && m_frame[layer]->m_lowres.filterThisGOP)
     {
         m_frame[layer]->m_mcstf->m_QP = qp;
         m_frame[layer]->m_mcstf->bilateralFilter(m_frame[layer], m_frame[layer]->m_mcstfRefList, m_pool);
     }
 
+    /* Gắn bộ hệ số và bộ đếm noise reduction vào quantizer của từng TLD.
+     * QP vượt QP_MAX_SPEC khi có VBV dùng hệ số emergency để giảm số bit;
+     * đường thông thường dùng bộ thống kê/hệ số riêng của worker. */
     if (m_nr)
     {
         if (qp > QP_MAX_SPEC && m_frame[layer]->m_param->rc.vbvBufferSize)
@@ -727,6 +827,7 @@ void FrameEncoder::compressFrame(int layer)
     }
 
     /* Clip slice QP to 0-51 spec range before encoding */
+    // Giới hạn QP theo bit depth; HDR10Opt bổ sung offset cho chroma Cb/Cr.
     slice->m_sliceQp = x265_clip3(-QP_BD_OFFSET, QP_MAX_SPEC, qp);
     if (m_param->bHDR10Opt)
     {
@@ -736,6 +837,7 @@ void FrameEncoder::compressFrame(int layer)
         slice->m_chromaQpOffset[1] = slice->m_pps->chromaQpOffset[1] + qpCr < -12 ? (qpCr + (-12 - (slice->m_pps->chromaQpOffset[1] + qpCr))) : qpCr;
     }
 
+    // Thu thập chi phí slice_qp_delta để chọn QP khởi tạo trong PPS hiệu quả hơn.
     if (m_param->bOptQpPPS && m_param->bRepeatHeaders)
     {
         ScopedLock qpLock(m_top->m_sliceQpLock);
@@ -747,8 +849,12 @@ void FrameEncoder::compressFrame(int layer)
         }
         m_top->m_iFrameNum++;
     }
+    // Khởi tạo xác suất CABAC theo slice/QP; đây là context gốc cho các rows.
     m_initSliceContext.resetEntropy(*slice);
 
+    /* Block 8 - Khởi tạo in-loop filters (deblocking/SAO) và trạng thái rows.
+     * Chặn rows trước khi reset để worker chưa xử lý dữ liệu đang khởi tạo;
+     * mỗi CTURow nhận CABAC context ban đầu và sliceId của nó. */
     m_frameFilter.start(m_frame[layer], m_initSliceContext);
 
     /* ensure all rows are blocked prior to initializing row CTU counters */
@@ -764,6 +870,12 @@ void FrameEncoder::compressFrame(int layer)
     // reset slice counter for rate control update
     m_sliceCnt = 0;
 
+    /* Block 9 - Cấp phát/reset CABAC substreams.
+     * WPP: một substream cho mỗi hàng CTU; nhiều substreams ghép vào một
+     * slice NAL, không phải mỗi substream là một NAL riêng.
+     * Không SAO: row coder ghi trực tiếp vào m_outStreams. Có SAO: cần final
+     * coding sau khi quyết định filter đã có (encodeSlice ở Block 14).
+     * m_substreamSizes dùng để ghi entry-point offsets trong slice header. */
     uint32_t numSubstreams = m_param->bEnableWavefront ? slice->m_sps->numCuInHeight : m_param->maxSlices;
     X265_CHECK(m_param->bEnableWavefront || (m_param->maxSlices == 1), "Multiple slices without WPP unsupport now!");
     if (!m_outStreams)
@@ -790,6 +902,12 @@ void FrameEncoder::compressFrame(int layer)
         }
     }
 
+    /* Block 10 - Ghi prefix SEI trước dữ liệu VCL của picture.
+     * SEI là metadata: HRD/timing, recovery, transfer characteristics, grain,
+     * và user data. Mỗi loại chỉ được ghi khi điều kiện tương ứng bật.
+     * bSingleSeiNal = 0: writeSEImessages reset và serialize từng message.
+     * bSingleSeiNal = 1: tích lũy messages trong m_bs, serialize chung ở cuối.
+     * encodeOrder là thứ tự mã hóa, có thể khác POC (thứ tự hiển thị). */
     m_rce.encodeOrder = m_frame[layer]->m_encodeOrder;
     int prevBPSEI = m_rce.encodeOrder ? m_top->m_lastBPSEI : 0;
 
@@ -797,6 +915,7 @@ void FrameEncoder::compressFrame(int layer)
     {
         if (m_param->bEmitHRDSEI)
         {
+            // Buffering Period mô tả trạng thái ban đầu của CPB theo mô hình HRD.
             SEIBufferingPeriod* bpSei = &m_top->m_rateControl->m_bufPeriodSEI;
 
             // since the temporal layer HRD is not ready, we assumed it is fixed
@@ -814,6 +933,7 @@ void FrameEncoder::compressFrame(int layer)
 
         if (m_frame[layer]->m_lowres.sliceType == X265_TYPE_IDR && m_param->bEmitIDRRecoverySEI)
         {
+            // Recovery Point tại IDR: điểm phục hồi ngay tại picture này (POC count 0).
             /* Recovery Point SEI require the SPS to be "activated" */
             SEIRecoveryPoint sei;
             sei.m_recoveryPocCnt = 0;
@@ -825,6 +945,8 @@ void FrameEncoder::compressFrame(int layer)
 
     if ((m_param->bEmitHRDSEI || !!m_param->interlaceMode))
     {
+        /* Picture Timing mô tả frame/field và độ trễ lấy AU khỏi CPB,
+         * xuất picture khỏi DPB; độ dài các trường HRD lấy từ SPS/VUI. */
         SEIPictureTiming *sei = m_rce.picTimingSEI;
         const VUI *vui = &slice->m_sps->vuiParameters;
         const HRDInfo *hrd = &vui->hrdParameters;
@@ -874,6 +996,7 @@ void FrameEncoder::compressFrame(int layer)
         sei->writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
     }
 
+    // Alternative TC báo transfer characteristics ưu tiên tại picture IRAP.
     if (m_param->preferredTransferCharacteristics > -1 && slice->isIRAP())
     {
         SEIAlternativeTC m_seiAlternativeTC;
@@ -896,6 +1019,10 @@ void FrameEncoder::compressFrame(int layer)
         readAomModel(&m_aomFilmGrain, this->m_top->m_aomFilmGrainIn);
         m_aomFilmGrain.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal);
     }
+    /* User SEI lấy từ payload của ứng dụng: unregistered hoặc registered T.35.
+     * Với HDR10 optimization, writeToneMapInfo kiểm tra có cần phát lại payload.
+     * Hàm này không có nhánh phát Frame Packing Arrangement (FPA) chuyên dụng;
+     * FPA là một loại SEI message, không phải một NAL type riêng. */
     /* Write user SEI */
     for (int i = 0; i < m_frame[layer]->m_userSEI.numPayloads; i++)
     {
@@ -922,6 +1049,9 @@ void FrameEncoder::compressFrame(int layer)
             x265_log(m_param, X265_LOG_ERROR, "Unrecognized SEI type\n");
     }
 
+    /* isSei là tập điều kiện mà code dùng để quyết định xuất SEI gộp,
+     * không phải phép kiểm tra tổng quát rằng m_bs đang chứa SEI hợp lệ.
+     * Khi thêm loại SEI mới, cần đối chiếu cả nơi reset, ghi và serialize. */
     bool isSei = ((m_frame[layer]->m_lowres.bKeyframe && m_param->bRepeatHeaders) || m_param->bEmitHRDSEI ||
                  !!m_param->interlaceMode || (m_frame[layer]->m_lowres.sliceType == X265_TYPE_IDR && m_param->bEmitIDRRecoverySEI) ||
                    m_frame[layer]->m_userSEI.numPayloads);
@@ -931,6 +1061,11 @@ void FrameEncoder::compressFrame(int layer)
         m_bs.writeByteAlignment();
         m_nalList.serialize(NAL_UNIT_PREFIX_SEI, m_bs);
     }
+    /* Block 11 - Đồng bộ rate control giữa các frame threads.
+     * CQP/CRF không VBV có thể mở dependency sớm cho frame sau;
+     * ABR/VBV cần chờ cập nhật thống kê giữa frame để điều chỉnh bitrate.
+     * Dynamic Refine lấy dữ liệu huấn luyện; mapping WPP bên dưới đổi giữa
+     * row thật và chỉ số scheduler, xen kẽ các slices khi có nhiều slice. */
     /* CQP and CRF (without capped VBV) doesn't use mid-frame statistics to 
      * tune RateControl parameters for other frames.
      * Hence, for these modes, update m_startEndOrder and unlock RC for previous threads waiting in
@@ -973,6 +1108,11 @@ void FrameEncoder::compressFrame(int layer)
         }
     }
 
+    /* Block 12 - Nén CTU rows và chạy in-loop filters.
+     * processRowEncoder thực hiện analysis/prediction/transform/quantization/
+     * reconstruction qua các hàm bên dưới; compressFrame điều phối công việc.
+     * WPP cho rows chạy song song nhưng vẫn phải tôn trọng dependency của
+     * reference pixels, tiến độ hàng trên và CABAC context. */
     if (m_param->bEnableWavefront)
     {
         for (uint32_t rowInSlice = 0; rowInSlice < m_sliceGroupSize; rowInSlice++)
@@ -1004,6 +1144,9 @@ void FrameEncoder::compressFrame(int layer)
                         // NOTE: we unnecessary wait row that beyond current slice boundary
                         const int rowIdx = X265_MIN(sliceEndRow, (row + m_refLagRows));
 
+                        /* Đợi reference sẵn sàng đến row + m_refLagRows để ME
+                         * có đủ pixel cho phạm vi tìm kiếm; không đọc ảnh tái
+                         * tạo/lọc còn dở của frame thread khác. */
                         while (refpic->m_reconRowFlag[rowIdx].get() == 0)
                             refpic->m_reconRowFlag[rowIdx].waitForChange(0);
 
@@ -1012,6 +1155,7 @@ void FrameEncoder::compressFrame(int layer)
                     }
                 }
                 
+                // Reference đã sẵn sàng; dependency nội bộ của WPP vẫn được giữ.
                 enableRowEncoder(m_row_to_idx[row]); /* clear external dependency for this row */
 
                 if (m_top->m_threadedME && !slice->isIntra())
@@ -1033,11 +1177,15 @@ void FrameEncoder::compressFrame(int layer)
         m_allRowsAvailableTime[layer] = x265_mdate();
         tryWakeOne(); /* ensure one thread is active or help-wanted flag is set prior to blocking */
         static const int block_ms = 250;
+        // Đợi sự kiện hoàn tất từ workers; khi timeout thì thử đánh thức worker.
         while (m_completionEvent.timedWait(block_ms))
             tryWakeOne();
     }
     else
     {
+        /* Không WPP: frame thread nén rows tuần tự, vẫn đợi reference rows.
+         * Filter chạy trễ m_filterRowDelay vì cần dữ liệu từ rows lân cận;
+         * các lượt cuối chỉ chạy filter để xử lý hết các rows còn lại. */
         for (uint32_t i = 0; i < m_numRows + m_filterRowDelay; i++)
         {
             // compress
@@ -1085,6 +1233,10 @@ void FrameEncoder::compressFrame(int layer)
                 m_frameFilter.processRow(i - m_filterRowDelay, layer);
         }
     }
+    /* Block 13 - Rows đã hoàn tất: tính VMAF nếu build hỗ trợ, reset threaded
+     * ME dependencies, hoàn thiện hash cho multislice, thu thập Dynamic Refine
+     * và reset dữ liệu MCSTF. Sau đó cộng row statistics thành frame statistics
+     * để ghi two-pass stats/CSV (MV bits, coefficient bits, tỷ lệ CU...). */
 #if ENABLE_LIBVMAF
     vmafFrameLevelScore();
 #endif
@@ -1188,6 +1340,16 @@ void FrameEncoder::compressFrame(int layer)
         m_frame[layer]->m_encData->m_frameStats.avgResEnergy = (double)(m_frame[layer]->m_encData->m_frameStats.resEnergy) / m_frame[layer]->m_encData->m_frameStats.totalCtu;
     }
 
+    /* Block 14 - Final entropy coding khi bật SAO.
+     * Các quyết định CU đã có; encodeSlice ghi cú pháp SAO và CTU qua CABAC
+     * vào substreams. Không SAO thì rows đã ghi dữ liệu ở Block 12.
+     * Phân tích CU chọn cách mã hóa; CABAC biểu diễn quyết định đó thành bit. */
+    /* Reset 4/7 - Chuyển buffer tạm từ headers/prefix SEI sang slice header.
+     * Các NAL trước đã được serialize; bỏ bản còn sót trong m_bs để không
+     * ghép metadata vào header VCL. Với một slice, codeSliceHeader phía dưới
+     * dùng trực tiếp buffer đã reset này. Với nhiều slices, mỗi lượt còn reset
+     * riêng. encodeSlice (nếu có SAO) ghi CTU vào m_outStreams, nên reset m_bs
+     * không làm mất CABAC slice data và cũng không reset CABAC context. */
     m_bs.resetBits();
     m_entropyCoder.load(m_initSliceContext);
     m_entropyCoder.setBitstream(&m_bs);
@@ -1196,6 +1358,12 @@ void FrameEncoder::compressFrame(int layer)
     if (slice->m_bUseSao)
         encodeSlice(0, layer);
 
+    /* Block 15 - Đóng gói slice header + CABAC substreams thành VCL NAL.
+     * serializeSubstreams ghép/escape dữ liệu vào buffer phụ của m_nalList,
+     * trả độ dài để ghi WPP entry-point offsets; serialize sẽ nối dữ liệu đó
+     * sau header trong m_bs. Một slice NAL có thể chứa nhiều row substreams.
+     * Nhiều slices: lặp theo nhóm rows; một slice: gom toàn bộ substreams.
+     * NAL type lấy từ slice, temporal ID được ghi theo cấu hình sublayers. */
     m_entropyCoder.setBitstream(&m_bs);
 
     if (m_param->maxSlices > 1)
@@ -1204,6 +1372,12 @@ void FrameEncoder::compressFrame(int layer)
 
         for(uint32_t sliceId = 0; sliceId < m_param->maxSlices; sliceId++)
         {
+            /* Reset 5/7 - Mỗi slice cần một header mới trong m_bs.
+             * Lượt đầu có thể đã rỗng nhờ Reset 4; các lượt sau bỏ header của
+             * slice trước đã serialize. Sau reset, ghi header/entry points
+             * của slice hiện tại rồi ghép các row substreams tương ứng.
+             * Không xóa NAL slice trước hay CABAC data trong m_outStreams.
+             * Đây là một vị trí code nhưng chạy một lần cho mỗi slice. */
             m_bs.resetBits();
 
             const uint32_t sliceAddr = nextSliceRow * m_numCols;
@@ -1253,6 +1427,11 @@ void FrameEncoder::compressFrame(int layer)
         m_nalList.serialize(slice->m_nalUnitType, m_bs, layer, (!!m_param->bEnableTemporalSubLayers ? m_frame[layer]->m_tempLayer + 1 : (1 + (slice->m_nalUnitType == NAL_UNIT_CODED_SLICE_TSA_N))));
     }
 
+    /* Block 16 - Ghi suffix SEI và tính số bit dùng cho rate control.
+     * Decoded Picture Hash (MD5/CRC/checksum) nằm sau VCL để kiểm tra ảnh tái tạo.
+     * Vòng tính bytes bỏ prefix/suffix SEI và trừ prefix theo công thức bên dưới,
+     * nên accessUnitBits ở đây không phải tổng mọi byte đầu ra.
+     * Layer bổ sung trừ phần base layer khỏi tổng tích lũy. */
     if (m_param->decodedPictureHashSEI)
         writeTrailingSEIMessages(layer);
 
@@ -1272,6 +1451,7 @@ void FrameEncoder::compressFrame(int layer)
     m_accessUnitBits[layer] = (layer) ? (bytes - (m_accessUnitBits[0] >> 3)) << 3 : bytes << 3;
 
     int filler = 0;
+    // Chỉ base layer gọi rateControlEnd: cập nhật bits thực tế và yêu cầu filler.
     /* rateControlEnd may also block for earlier frames to call rateControlUpdateStats */
     if (!layer && m_top->m_rateControl->rateControlEnd(m_frame[layer], m_accessUnitBits[layer], &m_rce, &filler) < 0)
         m_top->m_aborted = true;
@@ -1292,9 +1472,17 @@ void FrameEncoder::compressFrame(int layer)
     }
 #endif
 
+    /* Block 17 - Bổ sung filler và RPU nếu cần.
+     * Rate control trả filler theo bit; trừ overhead rồi đổi sang byte 0xff,
+     * đóng gói FILLER_DATA và cập nhật lại kích thước tính cho rate control. */
     if (filler > 0)
     {
         filler = (filler - FILLER_OVERHEAD * 8) >> 3;
+        /* Reset 6/7 - Bắt đầu payload FILLER_DATA riêng.
+         * m_bs có thể còn slice header, hoặc suffix SEI hash nếu vừa phát hash.
+         * Các NAL đó đã serialize nên bỏ phần còn sót trong buffer tạm.
+         * Tiếp theo chỉ ghi các byte 0xff và bit kết thúc/căn chỉnh, tránh
+         * đóng gói nhầm cú pháp slice/SEI vào NAL filler. Chỉ chạy khi có filler. */
         m_bs.resetBits();
         while (filler > 0)
         {
@@ -1308,14 +1496,25 @@ void FrameEncoder::compressFrame(int layer)
         m_accessUnitBits[layer] = bytes << 3;
     }
 
+    // RPU là metadata bổ sung (Dolby Vision), ở đây ghi vào NAL_UNSPECIFIED.
     if (m_frame[layer]->m_rpu.payloadSize)
     {
+        /* Reset 7/7 - Bắt đầu payload RPU riêng khi frame có metadata này.
+         * Bỏ dữ liệu filler nếu vừa ghi filler, hoặc nội dung NAL trước đó.
+         * Sau reset, chép đúng các byte m_rpu.payload và serialize UNSPECIFIED;
+         * RPU không bị nối sau phần filler/slice/SEI còn sót trong m_bs.
+         * Các NAL đã serialize vẫn còn nguyên trong m_nalList. */
         m_bs.resetBits();
         for (int i = 0; i < m_frame[layer]->m_rpu.payloadSize; i++)
             m_bs.write(m_frame[layer]->m_rpu.payload[i], 8);
         m_nalList.serialize(NAL_UNIT_UNSPECIFIED, m_bs);
     }
 
+    /* Block 18 - Hoàn tất picture và trả quyền giữ references.
+     * Giảm m_countRefEncoders để báo encoder này không còn dùng reference;
+     * reference chỉ được tái sử dụng khi các ràng buộc giữ ảnh khác cũng hết.
+     * Tổng hợp noise reduction từ TLDs, cập nhật hệ số rồi phân phối lại;
+     * cộng CU statistics nếu build bật và ghi timestamp kết thúc frame. */
     m_endCompressTime[layer] = x265_mdate();
     X265_FLOW_LOG("FrameEncoder",
                   "[FRAME encoder=%d frame=%d layer=%d] DONE object=Frame@%p stage=compress nals=%u access_unit_bits=%llu elapsed_us=%lld owner=FrameEncoder-%d",
