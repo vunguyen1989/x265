@@ -25,6 +25,7 @@
 #include "bitstream.h"
 #include "slice.h"
 #include "sei.h"
+#include <new>
 
 using namespace X265_NS;
 
@@ -33,6 +34,116 @@ const uint8_t SEIuserDataUnregistered::m_uuid_iso_iec_11578[16] = {
     0x2C, 0xA2, 0xDE, 0x09, 0xB5, 0x17, 0x47, 0xDB,
     0xBB, 0x55, 0xA4, 0xFE, 0x7F, 0xC2, 0xFC, 0x4E
 };
+
+PrefixSeiWriter::PrefixSeiWriter()
+    : m_buffer(NULL), m_messageCount(0), m_layerId(0), m_singleSei(false),
+      m_finalized(true), m_failed(false)
+{}
+
+PrefixSeiWriter::~PrefixSeiWriter()
+{
+    delete m_buffer;
+}
+
+void PrefixSeiWriter::begin(bool singleSei)
+{
+    X265_CHECK(m_finalized, "prefix SEI group is still open\n");
+    if (!m_finalized)
+    {
+        m_failed = true;
+        return;
+    }
+
+    m_singleSei = singleSei;
+    m_messageCount = 0;
+    m_finalized = false;
+    m_failed = false;
+    // Chưa cấp phát/reset buffer: chỉ cần buffer riêng khi append single-SEI.
+}
+
+void PrefixSeiWriter::append(SEI& sei, Bitstream& bs, const SPS& sps, NALList& list, int layerId)
+{
+    X265_CHECK(!m_finalized, "prefix SEI group has already been finalized\n");
+    if (m_finalized || m_failed)
+    {
+        m_failed = true;
+        return;
+    }
+
+    if (!m_singleSei)
+    {
+        // Không gộp: giữ nguyên reset/ghi/serialize mỗi message bằng buffer caller.
+        sei.writeSEImessages(bs, sps, NAL_UNIT_PREFIX_SEI, list, false, layerId);
+        return;
+    }
+
+    // Một NAL chỉ có một layerId. Đổi layer thì xuất nhóm cũ trước khi gom tiếp.
+    if (m_messageCount && m_layerId != layerId && !flushPending(list))
+        return;
+
+    if (!m_buffer)
+        m_buffer = new (std::nothrow) Bitstream;
+    if (!m_buffer || !m_buffer->getFIFO())
+    {
+        x265_log(NULL, X265_LOG_ERROR, "Unable to allocate prefix SEI buffer\n");
+        m_failed = true;
+        return;
+    }
+
+    if (!m_messageCount)
+    {
+        /* Append đầu tiên mở nội dung nhóm bằng buffer riêng sạch.
+         * AUD/parameter sets tiếp tục dùng bs, không thể xóa SEI đang gom.
+         * Các append tiếp theo không reset để giữ messages trước đó. */
+        m_buffer->resetBits();
+        m_layerId = layerId;
+    }
+
+    uint32_t previousBits = m_buffer->getNumberOfWrittenBits();
+    sei.writeSEImessages(*m_buffer, sps, NAL_UNIT_PREFIX_SEI, list, true, layerId);
+    if (m_buffer->getNumberOfWrittenBits() <= previousBits)
+    {
+        m_failed = true;
+        return;
+    }
+    m_messageCount++;
+}
+
+bool PrefixSeiWriter::flushPending(NALList& list)
+{
+    if (m_failed)
+        return false;
+    if (!m_messageCount)
+        return true;
+    if (list.m_numNal >= NALList::MAX_NAL_UNITS)
+    {
+        x265_log(NULL, X265_LOG_ERROR, "Too many NAL units for prefix SEI\n");
+        m_failed = true;
+        return false;
+    }
+
+    // Kết thúc một NAL gộp đúng một lần; SEI hiện dùng temporalID = 1.
+    m_buffer->writeByteAlignment();
+    uint32_t previousNals = list.m_numNal;
+    list.serialize(NAL_UNIT_PREFIX_SEI, *m_buffer, m_layerId, 1);
+    // serialize trả void; xác nhận NAL đã được thêm trước khi bỏ nhóm đang gom.
+    if (list.m_numNal != previousNals + 1)
+    {
+        m_failed = true;
+        return false;
+    }
+    m_messageCount = 0;
+    return true;
+}
+
+bool PrefixSeiWriter::flush(NALList& list)
+{
+    if (m_finalized)
+        return !m_failed;
+    bool success = flushPending(list);
+    m_finalized = true;
+    return success;
+}
 
 /* marshal a single SEI message sei, storing the marshalled representation
 * in bitstream bs */
@@ -45,8 +156,9 @@ void SEI::writeSEImessages(Bitstream& bs, const SPS& sps, NalUnitType nalUnitTyp
      * list thì không bị xóa; reset chỉ làm rỗng buffer tạm, giữ lại allocation.
      * isNested != 0: không reset vì phải append vào messages đang tích lũy,
      * cũng không serialize tại cuối hàm; caller quản lý đầu/cuối nhóm SEI.
-     * Trong các chỗ gọi dùng bSingleSeiNal làm isNested, true chính là đường
-     * gộp nhiều messages vào một NAL. Reset mỗi message sẽ làm mất message cũ.
+     * PrefixSeiWriter truyền true với buffer riêng khi gộp Prefix SEI,
+     * truyền false với buffer caller khi không gộp. Reset giữa các messages
+     * đang gom sẽ làm mất message cũ.
      * writeTrailingSEIMessages luôn truyền false nên suffix hash tự reset,
      * ghi và serialize riêng, không phụ thuộc tùy chọn gộp prefix SEI. */
     if (!isNested)

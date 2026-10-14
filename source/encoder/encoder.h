@@ -46,6 +46,7 @@ namespace X265_NS {
 extern const char g_sliceTypeToChar[3];
 
 class Entropy;
+class PrefixSeiWriter;
 
 #ifdef SVT_HEVC
 typedef struct SvtAppContext
@@ -325,7 +326,7 @@ public:
 
     int setAnalysisData(x265_analysis_data *analysis_data, int poc, uint32_t cuBytes);
 
-    void getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs);
+    void getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs, PrefixSeiWriter& prefixSei);
 
     void getEndNalUnits(NALList& list, Bitstream& bs);
 

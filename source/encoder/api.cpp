@@ -28,6 +28,7 @@
 #include "entropy.h"
 #include "level.h"
 #include "nal.h"
+#include "sei.h"
 #include "bitcost.h"
 #include "svt.h"
 
@@ -274,6 +275,8 @@ int x265_encoder_headers(x265_encoder *enc, x265_nal **pp_nal, uint32_t *pi_nal)
 
         Entropy sbacCoder;
         Bitstream bs;
+        PrefixSeiWriter prefixSei;
+        prefixSei.begin(encoder->m_param->bSingleSeiNal != 0);
         if (encoder->m_param->rc.bStatRead && encoder->m_param->bMultiPassOptRPS)
         {
             if (!encoder->computeSPSRPSIndex())
@@ -282,7 +285,13 @@ int x265_encoder_headers(x265_encoder *enc, x265_nal **pp_nal, uint32_t *pi_nal)
                 return -1;
             }
         }
-        encoder->getStreamHeaders(encoder->m_nalList, sbacCoder, bs);
+        encoder->getStreamHeaders(encoder->m_nalList, sbacCoder, bs, prefixSei);
+        // Headers API dùng buffer cục bộ: phải xuất nhóm SEI trước khi trả về.
+        if (!prefixSei.flush(encoder->m_nalList))
+        {
+            encoder->m_aborted = true;
+            return -1;
+        }
         *pp_nal = &encoder->m_nalList.m_nal[0];
         if (pi_nal) *pi_nal = encoder->m_nalList.m_numNal;
         return encoder->m_nalList.m_occupancy;

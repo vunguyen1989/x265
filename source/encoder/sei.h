@@ -49,6 +49,32 @@ protected:
     void writeByteAlign();
 };
 
+/* Collects prefix messages only in single-SEI mode. Separate SEI NALs keep
+ * using the caller's bitstream and the existing writeSEImessages() path. */
+class PrefixSeiWriter
+{
+public:
+    PrefixSeiWriter();
+    ~PrefixSeiWriter();
+
+    void begin(bool singleSei);
+    void append(SEI& sei, Bitstream& bs, const SPS& sps, NALList& list, int layerId = 0);
+    bool flush(NALList& list);
+
+private:
+    Bitstream* m_buffer;
+    uint32_t   m_messageCount;
+    int        m_layerId;
+    bool       m_singleSei;
+    bool       m_finalized;
+    bool       m_failed;
+
+    bool flushPending(NALList& list);
+
+    PrefixSeiWriter(const PrefixSeiWriter&);
+    PrefixSeiWriter& operator=(const PrefixSeiWriter&);
+};
+
 //seongnam.oh@samsung.com :: for the Creative Intent Meta Data Encoding
 class SEIuserDataRegistered : public SEI
 {

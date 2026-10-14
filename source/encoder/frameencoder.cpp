@@ -553,13 +553,18 @@ void FrameEncoder::compressFrame(int layer)
      * unit) */
     Slice* slice = m_frame[layer]->m_encData->m_slice;
 
+    /* Mỗi picture/layer mở một lifecycle mới trên writer của frame thread.
+     * Single-SEI dùng buffer riêng; chế độ không gộp vẫn ghi trực tiếp vào m_bs.
+     * begin chưa cấp phát buffer: nhóm không có message sẽ không tạo SEI NAL. */
+    m_prefixSei.begin(m_param->bSingleSeiNal != 0);
+
     /* 3.1 - Param chỉ bật/tắt EOS; thời điểm ghi do loại frame quyết định.
      * Trước mỗi IDR có POC != 0, ghi EOS để kết thúc coded video sequence cũ.
      * Điều kiện là IDR, không phải mọi I/keyframe hay mọi ranh giới GOP;
      * một sequence có thể chứa nhiều GOP. IDR đầu tiên chưa có sequence cũ. */
     if (m_param->bEnableEndOfSequence && m_frame[layer]->m_lowres.sliceType == X265_TYPE_IDR && m_frame[layer]->m_poc)
     {
-        /* Reset 1/7 - Chuẩn bị EOS từ buffer rỗng.
+        /* Reset 1/6 - Chuẩn bị EOS từ buffer rỗng.
          * FrameEncoder dùng lại m_bs qua nhiều pictures/layers, nên buffer có
          * thể còn cú pháp NAL trước. EOS không được mang theo nội dung đó;
          * reset rồi serialize NAL_UNIT_EOS mà không ghi payload ảnh vào m_bs. */
@@ -571,7 +576,7 @@ void FrameEncoder::compressFrame(int layer)
      * theo quy tắc thứ tự NAL được mô tả ở comment phía trên. */
     if (m_param->bEnableAccessUnitDelimiters && (m_frame[layer]->m_poc || m_param->bRepeatHeaders))
     {
-        /* Reset 2/7 - Bắt đầu payload AUD mới, bỏ cú pháp NAL trước còn sót.
+        /* Reset 2/6 - Bắt đầu payload AUD mới, bỏ cú pháp NAL trước còn sót.
          * Sau reset: codeAUD ghi pic_type, writeByteAlignment kết thúc payload,
          * serialize đóng gói riêng thành NAL_ACCESS_UNIT_DELIMITER.
          * Nếu vừa reset để ghi EOS thì buffer có thể đã rỗng; AUD vẫn tự
@@ -583,15 +588,9 @@ void FrameEncoder::compressFrame(int layer)
         // Thêm bit 1 rồi đệm bit 0 đến hết byte trước khi đóng gói NAL.
         m_bs.writeByteAlignment();
         m_nalList.serialize(NAL_UNIT_ACCESS_UNIT_DELIMITER, m_bs);
-        /* Reset 3/7 - serialize đã chép AUD sang m_nalList nhưng không reset m_bs.
-         * Single-SEI ghi nối các messages vào m_bs, không tự reset từng lần,
-         * nên phải bỏ dữ liệu AUD còn sót trước khi tích lũy SEI.
-         * Nếu không gộp, writeSEImessages tự reset trước mỗi message.
-         * Reset buffer tạm không xóa NAL AUD đã lưu trong m_nalList.
-         * Luồng mong muốn: AUD -> serialize -> reset -> SEI 1 -> SEI 2
-         * -> serialize SEI chung; thiếu reset có thể ghép AUD vào payload SEI. */
-        if (m_param->bSingleSeiNal)
-            m_bs.resetBits();
+        /* Không reset m_bs sau AUD để chuẩn bị single-SEI nữa.
+         * Writer sẽ gom SEI trong buffer riêng, nên AUD còn trong m_bs không
+         * thể lẫn vào nhóm. Khi không gộp, mỗi SEI vẫn tự reset m_bs như trước. */
     }
     /* 3.3 - Repeat headers: tại keyframe, ghi lại VPS/SPS/PPS và SEI headers
      * theo cấu hình. Các khóa bảo vệ dữ liệu PPS/RPS dùng chung giữa frames.
@@ -611,10 +610,10 @@ void FrameEncoder::compressFrame(int layer)
                 x265_log(m_param, X265_LOG_ERROR, "compute commonly RPS failed!\n");
                 m_top->m_aborted = true;
             }
-            m_top->getStreamHeaders(m_nalList, m_entropyCoder, m_bs);
+            m_top->getStreamHeaders(m_nalList, m_entropyCoder, m_bs, m_prefixSei);
         }
         else
-            m_top->getStreamHeaders(m_nalList, m_entropyCoder, m_bs);
+            m_top->getStreamHeaders(m_nalList, m_entropyCoder, m_bs, m_prefixSei);
     }
 
     // Khi đọc stats multipass, lấy chỉ số RPS đã chọn theo encode order.
@@ -905,8 +904,8 @@ void FrameEncoder::compressFrame(int layer)
     /* Block 10 - Ghi prefix SEI trước dữ liệu VCL của picture.
      * SEI là metadata: HRD/timing, recovery, transfer characteristics, grain,
      * và user data. Mỗi loại chỉ được ghi khi điều kiện tương ứng bật.
-     * bSingleSeiNal = 0: writeSEImessages reset và serialize từng message.
-     * bSingleSeiNal = 1: tích lũy messages trong m_bs, serialize chung ở cuối.
+     * bSingleSeiNal = 0: writer dùng m_bs và reset/serialize từng message như cũ.
+     * bSingleSeiNal = 1: writer gom trong buffer riêng rồi flush trước VCL.
      * encodeOrder là thứ tự mã hóa, có thể khác POC (thứ tự hiển thị). */
     m_rce.encodeOrder = m_frame[layer]->m_encodeOrder;
     int prevBPSEI = m_rce.encodeOrder ? m_top->m_lastBPSEI : 0;
@@ -926,7 +925,7 @@ void FrameEncoder::compressFrame(int layer)
 
             // hrdFullness() calculates the initial CPB removal delay and offset
             m_top->m_rateControl->hrdFullness(bpSei);
-            bpSei->writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
+            m_prefixSei.append(*bpSei, m_bs, *slice->m_sps, m_nalList, layer);
 
             m_top->m_lastBPSEI = m_rce.encodeOrder;
         }
@@ -939,7 +938,7 @@ void FrameEncoder::compressFrame(int layer)
             sei.m_recoveryPocCnt = 0;
             sei.m_exactMatchingFlag = true;
             sei.m_brokenLinkFlag = false;
-            sei.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
+            m_prefixSei.append(sei, m_bs, *slice->m_sps, m_nalList, layer);
         }
     }
 
@@ -993,7 +992,7 @@ void FrameEncoder::compressFrame(int layer)
             sei->m_picDpbOutputDelay = slice->m_sps->numReorderPics[m_frame[layer]->m_tempLayer] + poc - m_rce.encodeOrder;
         }
 
-        sei->writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
+        m_prefixSei.append(*sei, m_bs, *slice->m_sps, m_nalList, layer);
     }
 
     // Alternative TC báo transfer characteristics ưu tiên tại picture IRAP.
@@ -1001,7 +1000,7 @@ void FrameEncoder::compressFrame(int layer)
     {
         SEIAlternativeTC m_seiAlternativeTC;
         m_seiAlternativeTC.m_preferredTransferCharacteristics = m_param->preferredTransferCharacteristics;
-        m_seiAlternativeTC.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
+        m_prefixSei.append(m_seiAlternativeTC, m_bs, *slice->m_sps, m_nalList, layer);
     }
     /* Write Film grain characteristics if present */
     if (this->m_top->m_filmGrainIn)
@@ -1009,7 +1008,7 @@ void FrameEncoder::compressFrame(int layer)
         FilmGrainCharacteristics m_filmGrain;
         /* Read the Film grain model file */
         readModel(&m_filmGrain, this->m_top->m_filmGrainIn);
-        m_filmGrain.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
+        m_prefixSei.append(m_filmGrain, m_bs, *slice->m_sps, m_nalList, layer);
     }
     /* Write Aom film grain characteristics if present */
     if (this->m_top->m_aomFilmGrainIn)
@@ -1017,7 +1016,7 @@ void FrameEncoder::compressFrame(int layer)
         AomFilmGrainCharacteristics m_aomFilmGrain;
         /* Read the Film grain model file */
         readAomModel(&m_aomFilmGrain, this->m_top->m_aomFilmGrainIn);
-        m_aomFilmGrain.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal);
+        m_prefixSei.append(m_aomFilmGrain, m_bs, *slice->m_sps, m_nalList);
     }
     /* User SEI lấy từ payload của ứng dụng: unregistered hoặc registered T.35.
      * Với HDR10 optimization, writeToneMapInfo kiểm tra có cần phát lại payload.
@@ -1032,7 +1031,7 @@ void FrameEncoder::compressFrame(int layer)
             SEIuserDataUnregistered sei;
             sei.m_userData = payload->payload;
             sei.setSize(payload->payloadSize);
-            sei.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
+            m_prefixSei.append(sei, m_bs, *slice->m_sps, m_nalList, layer);
         }
         else if (payload->payloadType == USER_DATA_REGISTERED_ITU_T_T35)
         {
@@ -1042,25 +1041,19 @@ void FrameEncoder::compressFrame(int layer)
                 SEIuserDataRegistered sei;
                 sei.m_userData = payload->payload;
                 sei.setSize(payload->payloadSize);
-                sei.writeSEImessages(m_bs, *slice->m_sps, NAL_UNIT_PREFIX_SEI, m_nalList, m_param->bSingleSeiNal, layer);
+                m_prefixSei.append(sei, m_bs, *slice->m_sps, m_nalList, layer);
             }
         }
         else
             x265_log(m_param, X265_LOG_ERROR, "Unrecognized SEI type\n");
     }
 
-    /* isSei là tập điều kiện mà code dùng để quyết định xuất SEI gộp,
-     * không phải phép kiểm tra tổng quát rằng m_bs đang chứa SEI hợp lệ.
-     * Khi thêm loại SEI mới, cần đối chiếu cả nơi reset, ghi và serialize. */
-    bool isSei = ((m_frame[layer]->m_lowres.bKeyframe && m_param->bRepeatHeaders) || m_param->bEmitHRDSEI ||
-                 !!m_param->interlaceMode || (m_frame[layer]->m_lowres.sliceType == X265_TYPE_IDR && m_param->bEmitIDRRecoverySEI) ||
-                   m_frame[layer]->m_userSEI.numPayloads);
-
-    if (isSei && m_param->bSingleSeiNal)
-    {
-        m_bs.writeByteAlignment();
-        m_nalList.serialize(NAL_UNIT_PREFIX_SEI, m_bs);
-    }
+    /* Flush theo số messages thực sự đã append, không suy luận từ options.
+     * Không có message: đóng nhóm mà không phát NAL rỗng. Khi không gộp,
+     * messages đã serialize riêng; flush chỉ kết thúc lifecycle.
+     * Nhóm single-SEI đã chứa cả SEI headers và SEI picture, giữ thứ tự append. */
+    if (!m_prefixSei.flush(m_nalList))
+        m_top->m_aborted = true;
     /* Block 11 - Đồng bộ rate control giữa các frame threads.
      * CQP/CRF không VBV có thể mở dependency sớm cho frame sau;
      * ABR/VBV cần chờ cập nhật thống kê giữa frame để điều chỉnh bitrate.
@@ -1344,7 +1337,7 @@ void FrameEncoder::compressFrame(int layer)
      * Các quyết định CU đã có; encodeSlice ghi cú pháp SAO và CTU qua CABAC
      * vào substreams. Không SAO thì rows đã ghi dữ liệu ở Block 12.
      * Phân tích CU chọn cách mã hóa; CABAC biểu diễn quyết định đó thành bit. */
-    /* Reset 4/7 - Chuyển buffer tạm từ headers/prefix SEI sang slice header.
+    /* Reset 3/6 - Chuyển buffer tạm từ headers/SEI riêng sang slice header.
      * Các NAL trước đã được serialize; bỏ bản còn sót trong m_bs để không
      * ghép metadata vào header VCL. Với một slice, codeSliceHeader phía dưới
      * dùng trực tiếp buffer đã reset này. Với nhiều slices, mỗi lượt còn reset
@@ -1372,8 +1365,8 @@ void FrameEncoder::compressFrame(int layer)
 
         for(uint32_t sliceId = 0; sliceId < m_param->maxSlices; sliceId++)
         {
-            /* Reset 5/7 - Mỗi slice cần một header mới trong m_bs.
-             * Lượt đầu có thể đã rỗng nhờ Reset 4; các lượt sau bỏ header của
+            /* Reset 4/6 - Mỗi slice cần một header mới trong m_bs.
+             * Lượt đầu có thể đã rỗng nhờ Reset 3; các lượt sau bỏ header của
              * slice trước đã serialize. Sau reset, ghi header/entry points
              * của slice hiện tại rồi ghép các row substreams tương ứng.
              * Không xóa NAL slice trước hay CABAC data trong m_outStreams.
@@ -1478,7 +1471,7 @@ void FrameEncoder::compressFrame(int layer)
     if (filler > 0)
     {
         filler = (filler - FILLER_OVERHEAD * 8) >> 3;
-        /* Reset 6/7 - Bắt đầu payload FILLER_DATA riêng.
+        /* Reset 5/6 - Bắt đầu payload FILLER_DATA riêng.
          * m_bs có thể còn slice header, hoặc suffix SEI hash nếu vừa phát hash.
          * Các NAL đó đã serialize nên bỏ phần còn sót trong buffer tạm.
          * Tiếp theo chỉ ghi các byte 0xff và bit kết thúc/căn chỉnh, tránh
@@ -1499,7 +1492,7 @@ void FrameEncoder::compressFrame(int layer)
     // RPU là metadata bổ sung (Dolby Vision), ở đây ghi vào NAL_UNSPECIFIED.
     if (m_frame[layer]->m_rpu.payloadSize)
     {
-        /* Reset 7/7 - Bắt đầu payload RPU riêng khi frame có metadata này.
+        /* Reset 6/6 - Bắt đầu payload RPU riêng khi frame có metadata này.
          * Bỏ dữ liệu filler nếu vừa ghi filler, hoặc nội dung NAL trước đó.
          * Sau reset, chép đúng các byte m_rpu.payload và serialize UNSPECIFIED;
          * RPU không bị nối sau phần filler/slice/SEI còn sót trong m_bs.

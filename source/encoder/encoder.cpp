@@ -3446,18 +3446,20 @@ void Encoder::updateRefIdx()
     return;
 }
 
-void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
+void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs, PrefixSeiWriter& prefixSei)
 {
     /* bs là tham chiếu đến buffer của caller; khi compressFrame gọi hàm này,
      * bs chính là m_bs của FrameEncoder, không phải một buffer mới.
      * resetBits chỉ làm rỗng phần dữ liệu hợp lệ để dùng lại allocation.
      * list.serialize chép NAL sang list nhưng vẫn giữ nội dung trong bs,
-     * nên mỗi NAL mới bên dưới cần chuẩn bị buffer riêng. */
+     * nên mỗi NAL mới bên dưới cần chuẩn bị buffer riêng.
+     * Caller đã begin prefixSei và sẽ flush sau khi append xong. Khi gộp,
+     * SEI dùng buffer riêng của writer; reset bs không ảnh hưởng SEI đang gom. */
     sbacCoder.setBitstream(&bs);
 
     if (m_param->dolbyProfile && !m_param->bRepeatHeaders)
     {
-        /* Reset headers 1/5 - Nhánh Dolby phát AUD trước parameter sets.
+        /* Reset headers 1/4 - Nhánh Dolby phát AUD trước parameter sets.
          * Bỏ nội dung caller để bs chỉ chứa byte AUD 0x10 sẽ ghi tiếp;
          * serialize lưu AUD vào list, không tự làm rỗng bs sau khi ghi. */
         bs.resetBits();
@@ -3466,7 +3468,7 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
     }
     
     /* headers for start of bitstream */
-    /* Reset headers 2/5 - Bắt đầu VPS (Video Parameter Set) mới.
+    /* Reset headers 2/4 - Bắt đầu VPS (Video Parameter Set) mới.
      * Nếu nhánh Dolby vừa chạy thì bỏ payload AUD còn trong bs; nếu không,
      * bỏ nội dung từ caller. VPS phải là NAL riêng, không nối cú pháp vào AUD.
      * AUD hoặc NAL đã có trong list không bị xóa bởi reset này. */
@@ -3481,7 +3483,7 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
 
     for (int layer = 0; layer < m_param->numLayers; layer++)
     {
-        /* Reset headers 3/5 - Bắt đầu SPS (Sequence Parameter Set) của layer.
+        /* Reset headers 3/4 - Bắt đầu SPS (Sequence Parameter Set) của layer.
          * Lượt đầu bỏ VPS còn sót; lượt sau bỏ SPS của layer trước.
          * Những NAL đó đã được chép vào list. Mỗi lượt chỉ ghi một SPS mới,
          * rồi căn chỉnh và serialize với layerId tương ứng. */
@@ -3493,7 +3495,7 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
 
     for (int layer = 0; layer < m_param->numLayers; layer++)
     {
-        /* Reset headers 4/5 - Bắt đầu PPS (Picture Parameter Set) của layer.
+        /* Reset headers 4/4 - Bắt đầu PPS (Picture Parameter Set) của layer.
          * Lượt đầu bỏ SPS cuối cùng; lượt sau bỏ PPS của layer trước.
          * Không reset thì codePPS ghi nối vào dữ liệu cũ, khiến payload NAL_PPS
          * chứa cả cú pháp NAL trước. Parameter sets đã lưu trong list vẫn còn. */
@@ -3508,7 +3510,7 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
     {
         SEIAlphaChannelInfo m_alpha;
         m_alpha.alpha_channel_cancel_flag = !m_param->numScalableLayers;
-        m_alpha.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal);
+        prefixSei.append(m_alpha, bs, m_sps, list);
     }
 #endif
 
@@ -3517,30 +3519,22 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
     if (m_param->numViews > 1)
     {
         SEIThreeDimensionalReferenceDisplaysInfo m_multiview_1;
-        m_multiview_1.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal, 0);
+        prefixSei.append(m_multiview_1, bs, m_sps, list, 0);
 
         SEIMultiviewSceneInfo m_multiview_2;
-        m_multiview_2.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal, 0);
+        prefixSei.append(m_multiview_2, bs, m_sps, list, 0);
 
         SEIMultiviewAcquisitionInfo m_multiview_3;
-        m_multiview_3.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal, 0);
+        prefixSei.append(m_multiview_3, bs, m_sps, list, 0);
 
         SEIMultiviewViewPosition m_multiview_4;
-        m_multiview_4.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal, 0);
+        prefixSei.append(m_multiview_4, bs, m_sps, list, 0);
     }
 #endif
 
-    /* Reset headers 5/5 - Chuẩn bị buffer cho nhóm SEI headers phía dưới.
-     * Single-SEI sẽ append từng message (HDR10/info/active parameter sets),
-     * nên caller phải đưa bs về rỗng trước message đầu tiên của nhóm này.
-     * Thông thường bs còn PPS cuối; các nhánh alpha/multiview phía trên cũng
-     * có thể đã ghi vào bs. Reset bỏ mọi phần chưa serialize tại vị trí này;
-     * không có thao tác tự serialize trước reset. NAL trong list vẫn được giữ.
-     * Khi không gộp, writeSEImessages tự reset/serialize từng message.
-     * Khi gộp, messages phía dưới còn trong bs khi hàm trả về; caller chịu
-     * trách nhiệm kết thúc/serialize nhóm (compressFrame làm ở Block 10). */
-    if (m_param->bSingleSeiNal)
-        bs.resetBits();
+    /* Không reset để chuẩn bị single-SEI ở đây nữa: writer gom alpha/multiview
+     * và các SEI phía dưới trong buffer riêng. Caller flush nhóm sau cùng,
+     * nên không làm mất messages đã append ở các nhánh phía trên. */
 
     if (m_param->bEmitHDR10SEI)
     {
@@ -3549,14 +3543,14 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
             SEIContentLightLevel cllsei;
             cllsei.max_content_light_level = m_param->maxCLL;
             cllsei.max_pic_average_light_level = m_param->maxFALL;
-            cllsei.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal);
+            prefixSei.append(cllsei, bs, m_sps, list);
         }
 
         if (strlen(m_param->masteringDisplayColorVolume))
         {
             SEIMasteringDisplayColorVolume mdsei;
             if (mdsei.parse(m_param->masteringDisplayColorVolume))
-                mdsei.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal);
+                prefixSei.append(mdsei, bs, m_sps, list);
             else
                 x265_log(m_param, X265_LOG_WARNING, "unable to parse mastering display color volume info\n");
         }
@@ -3580,7 +3574,7 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
                 SEIuserDataUnregistered idsei;
                 idsei.m_userData = (uint8_t*)buffer;
                 idsei.setSize((uint32_t)strlen(buffer));
-                idsei.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal);
+                prefixSei.append(idsei, bs, m_sps, list);
 
                 X265_FREE(buffer);
             }
@@ -3595,7 +3589,7 @@ void Encoder::getStreamHeaders(NALList& list, Entropy& sbacCoder, Bitstream& bs)
         SEIActiveParameterSets sei;
         sei.m_selfContainedCvsFlag = true;
         sei.m_noParamSetUpdateFlag = true;
-        sei.writeSEImessages(bs, m_sps, NAL_UNIT_PREFIX_SEI, list, m_param->bSingleSeiNal);
+        prefixSei.append(sei, bs, m_sps, list);
     }
 }
 

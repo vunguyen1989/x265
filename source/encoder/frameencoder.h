@@ -40,6 +40,7 @@
 #include "ratecontrol.h"
 #include "reference.h"
 #include "nal.h"
+#include "sei.h"
 #include "temporalfilter.h"
 #include "threadedme.h"
 #include "threading.h"
@@ -265,6 +266,7 @@ public:
     uint32_t*                m_ctuGeomMap;
 
     Bitstream                m_bs;
+    PrefixSeiWriter          m_prefixSei;
     MotionReference          m_mref[2][MAX_NUM_REF + 1];
     Entropy                  m_entropyCoder;
     Entropy                  m_initSliceContext;
